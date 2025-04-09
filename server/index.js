@@ -5,10 +5,7 @@ import { MongoClient, ObjectId } from 'mongodb';
 import OpenAI from 'openai';
 import path from 'path';
 import { fileURLToPath } from 'url';
-import dns from 'dns';
 import { dirname } from 'path';
-
-dns.setDefaultResultOrder('ipv4first');
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
@@ -55,10 +52,7 @@ const openai = new OpenAI({
 });
 
 // CORS 설정
-app.use(cors({
-    origin: ['http://localhost:5173', 'http://3.35.24.104:3001'],
-    credentials: true
-}));
+app.use(cors());
 
 // Body parser 미들웨어
 app.use(express.json({ limit: '50mb' }));
@@ -82,10 +76,8 @@ async function connectToMongo() {
     }
 }
 
-// API 라우트
-const router = express.Router();
-
-router.post('/chat', async (req, res) => {
+// API 엔드포인트
+app.post('/api/chat', async (req, res) => {
     const { message, image } = req.body;
     console.log('받은 메시지:', message);
     if (image) console.log('이미지 데이터 포함');
@@ -145,7 +137,7 @@ router.post('/chat', async (req, res) => {
     }
 });
 
-router.get('/history', async (req, res) => {
+app.get('/api/history', async (req, res) => {
     try {
         const isConnected = await connectToMongo();
         if (!isConnected) {
@@ -166,7 +158,7 @@ router.get('/history', async (req, res) => {
     }
 });
 
-router.post('/rate-message', async (req, res) => {
+app.post('/api/rate-message', async (req, res) => {
     const { messageId, rating } = req.body;
     
     try {
@@ -193,16 +185,12 @@ router.post('/rate-message', async (req, res) => {
     }
 });
 
-// API 라우트 마운트
-app.use('/api', router);
-
 // 정적 파일 서빙 설정
-const staticPath = path.join(__dirname, '../client/dist');
-app.use(express.static(staticPath));
+app.use(express.static(path.join(__dirname, '../client/dist')));
 
 // 모든 다른 요청은 index.html로 리다이렉트
 app.get('*', (req, res) => {
-    res.sendFile(path.join(staticPath, 'index.html'));
+    res.sendFile(path.join(__dirname, '../client/dist/index.html'));
 });
 
 // 서버 시작
