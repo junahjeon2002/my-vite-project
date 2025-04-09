@@ -1,6 +1,6 @@
 import axios from 'axios';
 
-const API_URL = import.meta.env.VITE_API_URL || 'http://3.35.24.104:3001';
+const API_URL = import.meta.env.VITE_API_URL || 'http://3.35.24.104:3001/api';
 
 export const sendMessage = async (message, imageData = null) => {
   try {

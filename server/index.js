@@ -53,54 +53,13 @@ app.use(cors({
     origin: ['http://localhost:5173', 'http://3.35.24.104:3001'],
     credentials: true
 }));
+
+// Body parser 미들웨어
 app.use(express.json({ limit: '50mb' }));
-app.use(express.static('public'));  // 정적 파일을 public 폴더에서 제공
+app.use(express.urlencoded({ extended: true }));
 
-// 정적 파일 (React) 서빙
-app.use(express.static(path.join(__dirname, '../client/dist')));
-app.get('*', (req, res) => {
-  res.sendFile(path.join(__dirname, '../client/dist/index.html'));
-});
-
-// MongoDB 연결
-async function connectToMongo() {
-  try {
-    await client.connect();
-    console.log('✅ MongoDB 연결 성공');
-    
-    // 연결 테스트
-    const db = client.db(dbName);
-    await db.command({ ping: 1 });
-    console.log('✅ MongoDB 데이터베이스 접근 성공');
-    
-    // 에러 이벤트 리스너 추가
-    client.on('error', (error) => {
-      console.error('MongoDB 에러 발생:', error);
-    });
-    
-    client.on('close', () => {
-      console.log('MongoDB 연결이 닫혔습니다. 재연결 시도...');
-      setTimeout(connectToMongo, 5000);
-    });
-    
-  } catch (err) {
-    console.error('❌ MongoDB 연결 실패:', err);
-    console.log('5초 후 재연결 시도...');
-    setTimeout(connectToMongo, 5000);
-  }
-}
-
-// 초기 연결 시도
-connectToMongo();
-
-// OpenAI 설정
-const openai = new OpenAI({ 
-    apiKey: openaiApiKey,
-    timeout: 30000,
-});
-
-// 채팅 요청 처리
-app.post('/chat', async (req, res) => {
+// API 라우트
+app.post('/api/chat', async (req, res) => {
   const { message, image } = req.body;
   console.log('받은 메시지:', message);
   if (image) console.log('이미지 데이터 포함');
@@ -198,8 +157,7 @@ app.post('/chat', async (req, res) => {
   }
 });
 
-// 기록 불러오기
-app.get('/history', async (req, res) => {
+app.get('/api/history', async (req, res) => {
   try {
     const db = client.db(dbName);
     const history = await db.collection(collectionName)
@@ -215,8 +173,7 @@ app.get('/history', async (req, res) => {
   }
 });
 
-// 별점 저장 엔드포인트
-app.post('/rate-message', async (req, res) => {
+app.post('/api/rate-message', async (req, res) => {
   const { messageId, rating } = req.body;
   
   try {
@@ -239,6 +196,45 @@ app.post('/rate-message', async (req, res) => {
   }
 });
 
+// 정적 파일 서빙 설정
+const staticPath = path.join(__dirname, '../client/dist');
+app.use(express.static(staticPath));
+
+// 모든 다른 요청은 index.html로 리다이렉트
+app.get('*', (req, res) => {
+    res.sendFile(path.join(staticPath, 'index.html'));
+});
+
+// MongoDB 연결
+async function connectToMongo() {
+  try {
+    await client.connect();
+    console.log('✅ MongoDB 연결 성공');
+    
+    // 연결 테스트
+    const db = client.db(dbName);
+    await db.command({ ping: 1 });
+    console.log('✅ MongoDB 데이터베이스 접근 성공');
+    
+    // 에러 이벤트 리스너 추가
+    client.on('error', (error) => {
+      console.error('MongoDB 에러 발생:', error);
+    });
+    
+    client.on('close', () => {
+      console.log('MongoDB 연결이 닫혔습니다. 재연결 시도...');
+      setTimeout(connectToMongo, 5000);
+    });
+    
+  } catch (err) {
+    console.error('❌ MongoDB 연결 실패:', err);
+    console.log('5초 후 재연결 시도...');
+    setTimeout(connectToMongo, 5000);
+  }
+}
+
+// 서버 시작
 app.listen(port, '0.0.0.0', () => {
-  console.log(`🚀 서버 실행 중: http://localhost:${port}`);
+    console.log(`🚀 서버 실행 중: http://localhost:${port}`);
+    connectToMongo();
 }); 
