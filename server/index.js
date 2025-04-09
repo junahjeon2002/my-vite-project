@@ -14,7 +14,7 @@ const __dirname = dirname(__filename);
 dotenv.config({ path: path.join(__dirname, '.env') });
 
 const app = express();
-const port = process.env.PORT || 3001;
+const port = 3000;  // 명시적으로 3000 포트 설정
 const mongoUrl = process.env.MONGODB_URL;
 const openaiApiKey = process.env.OPENAI_API_KEY;
 
@@ -57,6 +57,10 @@ app.use(cors());
 // Body parser 미들웨어
 app.use(express.json({ limit: '50mb' }));
 app.use(express.urlencoded({ extended: true }));
+
+// 정적 파일 서빙 설정
+const staticPath = path.join(__dirname, '../client/dist');
+app.use(express.static(staticPath));
 
 // MongoDB 연결
 async function connectToMongo() {
@@ -185,12 +189,13 @@ app.post('/api/rate-message', async (req, res) => {
     }
 });
 
-// 정적 파일 서빙 설정
-app.use(express.static(path.join(__dirname, '../client/dist')));
-
-// 모든 다른 요청은 index.html로 리다이렉트
-app.get('*', (req, res) => {
-    res.sendFile(path.join(__dirname, '../client/dist/index.html'));
+// 클라이언트 라우팅을 위한 폴백 라우트
+app.use((req, res, next) => {
+    if (!req.path.startsWith('/api/')) {
+        res.sendFile(path.join(staticPath, 'index.html'));
+    } else {
+        next();
+    }
 });
 
 // 서버 시작
