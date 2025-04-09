@@ -12,7 +12,7 @@ dns.setDefaultResultOrder('ipv4first');
 dotenv.config();
 
 const app = express();
-const port = process.env.PORT || 3000;
+const port = process.env.PORT || 3001;
 const mongoUrl = process.env.MONGODB_URL;
 const openaiApiKey = process.env.OPENAI_API_KEY;
 
@@ -35,7 +35,11 @@ const collectionName = 'messages';
 const client = new MongoClient(mongoUrl);
 const openai = new OpenAI({ apiKey: openaiApiKey });
 
-app.use(cors());
+// CORS 설정
+app.use(cors({
+    origin: ['http://localhost:5173', 'http://3.35.24.104:3001'],
+    credentials: true
+}));
 app.use(express.json({ limit: '50mb' }));
 app.use(express.static('public'));  // 정적 파일을 public 폴더에서 제공
 
