@@ -32,8 +32,10 @@ console.log('OpenAI API Key:', openaiApiKey.substring(0, 5) + '...');
 const dbName = 'chatApp';
 const collectionName = 'messages';
 
-const client = new MongoClient(mongoUrl);
-const openai = new OpenAI({ apiKey: openaiApiKey });
+const client = new MongoClient(mongoUrl, {
+    connectTimeoutMS: 5000,
+    socketTimeoutMS: 30000,
+});
 
 // CORS 설정
 app.use(cors({
@@ -56,11 +58,37 @@ async function connectToMongo() {
   try {
     await client.connect();
     console.log('✅ MongoDB 연결 성공');
+    
+    // 연결 테스트
+    const db = client.db(dbName);
+    await db.command({ ping: 1 });
+    console.log('✅ MongoDB 데이터베이스 접근 성공');
+    
+    // 에러 이벤트 리스너 추가
+    client.on('error', (error) => {
+      console.error('MongoDB 에러 발생:', error);
+    });
+    
+    client.on('close', () => {
+      console.log('MongoDB 연결이 닫혔습니다. 재연결 시도...');
+      setTimeout(connectToMongo, 5000);
+    });
+    
   } catch (err) {
     console.error('❌ MongoDB 연결 실패:', err);
+    console.log('5초 후 재연결 시도...');
+    setTimeout(connectToMongo, 5000);
   }
 }
+
+// 초기 연결 시도
 connectToMongo();
+
+// OpenAI 설정
+const openai = new OpenAI({ 
+    apiKey: openaiApiKey,
+    timeout: 30000,
+});
 
 // 채팅 요청 처리
 app.post('/chat', async (req, res) => {
@@ -69,6 +97,12 @@ app.post('/chat', async (req, res) => {
   if (image) console.log('이미지 데이터 포함');
   
   try {
+    // MongoDB 연결 상태 확인
+    if (!client.topology || !client.topology.isConnected()) {
+      console.error('MongoDB 연결이 끊어졌습니다.');
+      await connectToMongo();
+    }
+
     const systemMessage = `당신은 친절한 AI 어시스턴트입니다. 사용자의 질문에 명확하고 도움이 되는 답변을 제공해주세요.`;
     
     let messages = [
@@ -95,46 +129,63 @@ app.post('/chat', async (req, res) => {
       });
     }
 
-    const completion = await openai.chat.completions.create({
-      model: 'gpt-4-turbo',
-      messages: messages,
-      max_tokens: 1000,
-    });
+    // OpenAI API 호출
+    let completion;
+    try {
+      completion = await openai.chat.completions.create({
+        model: 'gpt-4-turbo',
+        messages: messages,
+        max_tokens: 1000,
+      });
+    } catch (openaiError) {
+      console.error('OpenAI API 오류:', openaiError);
+      return res.status(500).json({ error: 'AI 응답 생성 실패', details: openaiError.message });
+    }
 
     const reply = completion.choices[0].message.content;
     console.log('AI 응답:', reply);
     
-    const db = client.db(dbName);
-    
-    // 사용자 메시지 저장
-    const userMessage = {
-      type: 'user',
-      message: message,
-      image: image || null,
-      timestamp: new Date(),
-      satisfaction: 0
-    };
-    
-    const userResult = await db.collection(collectionName).insertOne(userMessage);
-    
-    // AI 응답 저장
-    const aiMessage = {
-      type: 'ai',
-      reply: reply,
-      timestamp: new Date(),
-      satisfaction: 0
-    };
-    
-    const aiResult = await db.collection(collectionName).insertOne(aiMessage);
+    // MongoDB 저장
+    try {
+      const db = client.db(dbName);
+      
+      // 사용자 메시지 저장
+      const userMessage = {
+        type: 'user',
+        message: message,
+        image: image || null,
+        timestamp: new Date(),
+        satisfaction: 0
+      };
+      
+      const userResult = await db.collection(collectionName).insertOne(userMessage);
+      
+      // AI 응답 저장
+      const aiMessage = {
+        type: 'ai',
+        reply: reply,
+        timestamp: new Date(),
+        satisfaction: 0
+      };
+      
+      const aiResult = await db.collection(collectionName).insertOne(aiMessage);
 
-    res.json({ 
-      reply,
-      messageId: aiResult.insertedId 
-    });
+      res.json({ 
+        reply,
+        messageId: aiResult.insertedId 
+      });
+    } catch (dbError) {
+      console.error('MongoDB 저장 오류:', dbError);
+      // 데이터베이스 저장은 실패했지만 AI 응답은 반환
+      res.json({ 
+        reply,
+        messageId: null,
+        warning: '대화 저장에 실패했습니다.'
+      });
+    }
   } catch (error) {
-    console.error('OpenAI 오류:', error);
-    console.error('OpenAI 오류 상세:', error.message);
-    res.status(500).json({ error: '응답을 생성하는데 실패했습니다.' });
+    console.error('전체 처리 오류:', error);
+    res.status(500).json({ error: '요청 처리 중 오류가 발생했습니다.' });
   }
 });
 
