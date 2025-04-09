@@ -1,20 +1,31 @@
 import express from 'express';
 import cors from 'cors';
-import dotenv from 'dotenv';
+import * as dotenv from 'dotenv';
 import { MongoClient, ObjectId } from 'mongodb';
 import OpenAI from 'openai';
 import path from 'path';
 import { fileURLToPath } from 'url';
 import dns from 'dns';
+import { dirname } from 'path';
 
 dns.setDefaultResultOrder('ipv4first');
 
-dotenv.config();
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = dirname(__filename);
+
+// .env 파일 경로 설정
+dotenv.config({ path: path.join(__dirname, '.env') });
 
 const app = express();
 const port = process.env.PORT || 3001;
 const mongoUrl = process.env.MONGODB_URL;
 const openaiApiKey = process.env.OPENAI_API_KEY;
+
+// 환경 변수 확인 및 로깅
+console.log('환경 변수 확인:');
+console.log('PORT:', port);
+console.log('MONGODB_URL:', mongoUrl ? '설정됨' : '설정되지 않음');
+console.log('OPENAI_API_KEY:', openaiApiKey ? '설정됨' : '설정되지 않음');
 
 if (!mongoUrl) {
     console.error('MONGODB_URL 환경 변수가 설정되지 않았습니다.');
@@ -46,8 +57,6 @@ app.use(express.json({ limit: '50mb' }));
 app.use(express.static('public'));  // 정적 파일을 public 폴더에서 제공
 
 // 정적 파일 (React) 서빙
-const __filename = fileURLToPath(import.meta.url);
-const __dirname = path.dirname(__filename);
 app.use(express.static(path.join(__dirname, '../client/dist')));
 app.get('*', (req, res) => {
   res.sendFile(path.join(__dirname, '../client/dist/index.html'));
