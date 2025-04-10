@@ -219,12 +219,13 @@ app.use('/api', (req, res, next) => {
         res.status(404).json({ error: '잘못된 API 경로입니다.' });
     }
 });
-
+*/
 // 클라이언트 라우팅을 위한 폴백
-app.get('*', (req, res) => {
+// 모든 비-API 경로에 대해서만 index.html 서빙
+app.get(/^\/(?!api\/).*/, (req, res) => {
     res.sendFile(path.join(staticPath, 'index.html'));
 });
-*/
+
 
 // 서버 시작
 app.listen(port, '0.0.0.0', () => {
