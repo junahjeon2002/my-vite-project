@@ -7,13 +7,16 @@ const StarRating = ({ messageId, initialRating = 0 }) => {
   const [rating, setRating] = useState(initialRating);
   const [hover, setHover] = useState(0);
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const baseURL = import.meta.env.VITE_API_BASE_URL;
+
 
   const handleRating = async (value) => {
     if (isSubmitting) return;
     
     setIsSubmitting(true);
+
     try {
-      const response = await fetch('http://localhost:3000/rate-message', {
+      const response = await fetch(`${baseURL}/rate-message`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -69,7 +72,7 @@ const ChatPanel = ({ currentImageId, chatHistory, setChatHistory, onRequestImage
   // 채팅 기록 불러오기
   const loadChatHistory = async () => {
     try {
-      const response = await fetch('http://localhost:3000/history');
+      const response = await fetch('http://localhost:3000/api/history');
       if (!response.ok) {
         throw new Error('채팅 기록을 불러오는데 실패했습니다');
       }
@@ -161,7 +164,7 @@ const ChatPanel = ({ currentImageId, chatHistory, setChatHistory, onRequestImage
 
     setIsLoading(true);
     try {
-      const response = await fetch('http://localhost:3000/chat', {
+      const response = await fetch('http://localhost:3000/api/chat', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',

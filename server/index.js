@@ -222,10 +222,11 @@ app.use('/api', (req, res, next) => {
 */
 // 클라이언트 라우팅을 위한 폴백
 // 모든 비-API 경로에 대해서만 index.html 서빙
-app.get(/^\/(?!api\/).*/, (req, res) => {
-    res.sendFile(path.join(staticPath, 'index.html'));
+app.get('*', (req, res) => {
+    if (!req.path.startsWith('/api/')) {
+      res.sendFile(path.join(staticPath, 'index.html'));
+    }
   });
-  
 
 // 서버 시작
 app.listen(port, '0.0.0.0', () => {
