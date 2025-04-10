@@ -11,13 +11,14 @@ const App = () => {
   const [view, setView] = useState('chat') // 'chat' or 'history'
   const [currentImageIndex, setCurrentImageIndex] = useState(0)
   const canvasRef = useRef(null)
+  const baseURL = import.meta.env.VITE_API_BASE_URL;
 
   // 대화 기록 저장 함수
   const saveChatHistory = async () => {
     try {
       console.log('대화 기록 저장 시도:', chatHistory);
       
-      const response = await fetch('http://localhost:3000/api/save-chat', {
+      const response = await fetch(`${baseURL}/api/save-chat`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -41,7 +42,7 @@ const App = () => {
   // 대화 기록 불러오기 함수
   const loadChatHistory = async () => {
     try {
-      const response = await fetch('http://localhost:3000/history');
+      const response = await fetch(`${baseURL}/history`);
       
       if (!response.ok) {
         throw new Error('Failed to load chat history');
@@ -111,7 +112,7 @@ const App = () => {
     setChatHistory(prev => [...prev, newMessage])
 
     try {
-      const response = await fetch('http://localhost:3000/chat', {
+      const response = await fetch(`${baseURL}/chat`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',

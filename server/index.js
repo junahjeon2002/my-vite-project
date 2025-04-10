@@ -59,7 +59,7 @@ app.use(express.json({ limit: '50mb' }));
 app.use(express.urlencoded({ extended: true }));
 
 // 정적 파일 서빙 설정
-const staticPath = path.join(__dirname, '../client/dist');
+const staticPath = path.join(__dirname, '../../client/dist');
 
 // MongoDB 연결
 async function connectToMongo() {
@@ -224,8 +224,8 @@ app.use('/api', (req, res, next) => {
 // 모든 비-API 경로에 대해서만 index.html 서빙
 app.get(/^\/(?!api\/).*/, (req, res) => {
     res.sendFile(path.join(staticPath, 'index.html'));
-});
-
+  });
+  
 
 // 서버 시작
 app.listen(port, '0.0.0.0', () => {
