@@ -60,7 +60,6 @@ app.use(express.urlencoded({ extended: true }));
 
 // 정적 파일 서빙 설정
 const staticPath = path.join(__dirname, '../client/dist');
-app.use(express.static(staticPath));
 
 // MongoDB 연결
 async function connectToMongo() {
@@ -80,9 +79,15 @@ async function connectToMongo() {
     }
 }
 
-// API 엔드포인트
+// API 엔드포인트들을 먼저 정의
 app.post('/api/chat', async (req, res) => {
     const { message, image } = req.body;
+    
+    // 필수 파라미터 검증
+    if (!message || typeof message !== 'string') {
+        return res.status(400).json({ error: '유효한 메시지가 필요합니다.' });
+    }
+    
     console.log('받은 메시지:', message);
     if (image) console.log('이미지 데이터 포함');
     
@@ -165,10 +170,24 @@ app.get('/api/history', async (req, res) => {
 app.post('/api/rate-message', async (req, res) => {
     const { messageId, rating } = req.body;
     
+    // 필수 파라미터 검증
+    if (!messageId) {
+        return res.status(400).json({ error: '메시지 ID가 필요합니다.' });
+    }
+    
+    if (rating === undefined || rating === null || isNaN(parseInt(rating)) || rating < 0 || rating > 5) {
+        return res.status(400).json({ error: '유효한 별점(0-5)이 필요합니다.' });
+    }
+    
     try {
         const isConnected = await connectToMongo();
         if (!isConnected) {
             return res.status(500).json({ error: 'MongoDB 연결 실패' });
+        }
+
+        // ObjectId 유효성 검사
+        if (!ObjectId.isValid(messageId)) {
+            return res.status(400).json({ error: '유효하지 않은 메시지 ID입니다.' });
         }
 
         const db = client.db(dbName);
@@ -189,14 +208,23 @@ app.post('/api/rate-message', async (req, res) => {
     }
 });
 
-// 클라이언트 라우팅을 위한 폴백 라우트
-app.use((req, res, next) => {
-    if (!req.path.startsWith('/api/')) {
-        res.sendFile(path.join(staticPath, 'index.html'));
-    } else {
+// 정적 파일 서빙
+app.use(express.static(staticPath));
+/*
+// API 라우트
+app.use('/api', (req, res, next) => {
+    if (req.path.startsWith('/chat') || req.path.startsWith('/history') || req.path.startsWith('/rate-message')) {
         next();
+    } else {
+        res.status(404).json({ error: '잘못된 API 경로입니다.' });
     }
 });
+
+// 클라이언트 라우팅을 위한 폴백
+app.get('*', (req, res) => {
+    res.sendFile(path.join(staticPath, 'index.html'));
+});
+*/
 
 // 서버 시작
 app.listen(port, '0.0.0.0', () => {
