@@ -7,8 +7,6 @@ const StarRating = ({ messageId, initialRating = 0 }) => {
   const [rating, setRating] = useState(initialRating);
   const [hover, setHover] = useState(0);
   const [isSubmitting, setIsSubmitting] = useState(false);
-  const baseURL = import.meta.env.VITE_API_BASE_URL;
-
 
   const handleRating = async (value) => {
     if (isSubmitting) return;
@@ -16,12 +14,15 @@ const StarRating = ({ messageId, initialRating = 0 }) => {
     setIsSubmitting(true);
 
     try {
-      const response = await fetch(`${baseURL}/rate-message`, {
+      const response = await fetch('http://localhost:3000/api/rate-message', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
         },
-        body: JSON.stringify({ messageId, rating: value }),
+        body: JSON.stringify({ 
+          messageId: messageId,
+          rating: value 
+        }),
       });
 
       if (!response.ok) {

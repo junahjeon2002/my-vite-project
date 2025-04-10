@@ -97,15 +97,27 @@ app.post('/api/chat', async (req, res) => {
             return res.status(500).json({ error: 'MongoDB 연결 실패' });
         }
 
-        const systemMessage = `당신은 친절한 AI 어시스턴트입니다. 사용자의 질문에 명확하고 도움이 되는 답변을 제공해주세요.`;
+        const systemMessage = `당신은 친절한 AI 어시스턴트입니다. 사용자의 질문에 명확하고 도움이 되는 답변을 제공해주세요. 환영 메시지는 출력하지 마세요. 이미지가 포함된 경우 이미지 내용을 분석하여 답변해주세요.`;
         
         let messages = [
-            { role: 'system', content: systemMessage },
-            { role: 'user', content: message }
+            { role: 'system', content: systemMessage }
         ];
 
+        // 이미지가 있는 경우 이미지 분석 요청 추가
+        if (image) {
+            messages.push({
+                role: 'user',
+                content: [
+                    { type: 'text', text: message },
+                    { type: 'image_url', image_url: { url: image } }
+                ]
+            });
+        } else {
+            messages.push({ role: 'user', content: message });
+        }
+
         const completion = await openai.chat.completions.create({
-            model: 'gpt-4-turbo',
+            model: 'gpt-4-turbo', // 이미지 분석을 위한 모델로 변경
             messages: messages,
             max_tokens: 1000,
         });
