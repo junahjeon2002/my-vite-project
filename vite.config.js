@@ -1,15 +1,14 @@
 import { defineConfig } from 'vite'
 import react from '@vitejs/plugin-react'
+import { nodePolyfills } from 'vite-plugin-node-polyfills'
 
 export default defineConfig({
-  plugins: [react()],
+  plugins: [
+    react(),
+    nodePolyfills()
+  ],
   define: {
-    // Node.js 환경에서는 getRandomValues를 대체
-    'global.crypto': 'require("crypto")'
-  },
-  resolve: {
-    alias: {
-      crypto: 'crypto-browserify'
-    }
+    global: 'globalThis',
+    'process.env': {}
   }
 })

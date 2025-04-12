@@ -79,35 +79,7 @@ console.log(`✅ 정적 파일 경로: ${staticPath}`);
 console.log(`✅ index.html 경로: ${indexPath}`);
 
 // API 라우트 먼저 설정
-app.use('/api', apiRouter);
-
-// 그 다음 정적 파일 서빙 설정
-app.use(express.static(staticPath));
-
-// 클라이언트 라우팅을 위한 폴백
-app.get('*', (req, res) => {
-    if (!req.path.startsWith('/api/')) {
-        res.sendFile(indexPath);
-    }
-});
-
-// MongoDB 연결
-async function connectToMongo() {
-    try {
-        await client.connect();
-        console.log('✅ MongoDB 연결 성공');
-        
-        // 연결 테스트
-        const db = client.db(dbName);
-        await db.command({ ping: 1 });
-        console.log('✅ MongoDB 데이터베이스 접근 성공');
-        
-        return true;
-    } catch (err) {
-        console.error('❌ MongoDB 연결 실패:', err);
-        return false;
-    }
-}
+//app.use('/api', apiRouter);
 
 // API 엔드포인트들을 먼저 정의
 app.post('/api/chat', async (req, res) => {
@@ -249,6 +221,34 @@ app.post('/api/rate-message', async (req, res) => {
         res.status(500).json({ error: '별점 저장에 실패했습니다.' });
     }
 });
+
+// 정적 파일 서빙 설정
+app.use(express.static(staticPath));
+
+// 클라이언트 라우팅을 위한 폴백 (마지막에 정의)
+app.get('*', (req, res) => {
+    if (!req.path.startsWith('/api/')) {
+        res.sendFile(indexPath);
+    }
+});
+
+// MongoDB 연결
+async function connectToMongo() {
+    try {
+        await client.connect();
+        console.log('✅ MongoDB 연결 성공');
+        
+        // 연결 테스트
+        const db = client.db(dbName);
+        await db.command({ ping: 1 });
+        console.log('✅ MongoDB 데이터베이스 접근 성공');
+        
+        return true;
+    } catch (err) {
+        console.error('❌ MongoDB 연결 실패:', err);
+        return false;
+    }
+}
 
 // 서버 시작
 app.listen(port, '0.0.0.0', () => {
