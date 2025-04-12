@@ -6,6 +6,7 @@ import OpenAI from 'openai';
 import path from 'path';
 import { fileURLToPath } from 'url';
 import { dirname } from 'path';
+import fs from 'fs';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
@@ -59,7 +60,36 @@ app.use(express.json({ limit: '50mb' }));
 app.use(express.urlencoded({ extended: true }));
 
 // 정적 파일 서빙 설정
-const staticPath = path.join(__dirname, '../../client/dist');
+const staticPath = path.join(__dirname, '../dist');
+
+// dist 디렉토리 존재 확인
+if (!fs.existsSync(staticPath)) {
+    console.error(`❌ dist 디렉토리를 찾을 수 없습니다: ${staticPath}`);
+    process.exit(1);
+}
+
+// index.html 파일 존재 확인
+const indexPath = path.join(staticPath, 'index.html');
+if (!fs.existsSync(indexPath)) {
+    console.error(`❌ index.html 파일을 찾을 수 없습니다: ${indexPath}`);
+    process.exit(1);
+}
+
+console.log(`✅ 정적 파일 경로: ${staticPath}`);
+console.log(`✅ index.html 경로: ${indexPath}`);
+
+// API 라우트 먼저 설정
+app.use('/api', apiRouter);
+
+// 그 다음 정적 파일 서빙 설정
+app.use(express.static(staticPath));
+
+// 클라이언트 라우팅을 위한 폴백
+app.get('*', (req, res) => {
+    if (!req.path.startsWith('/api/')) {
+        res.sendFile(indexPath);
+    }
+});
 
 // MongoDB 연결
 async function connectToMongo() {
@@ -219,26 +249,6 @@ app.post('/api/rate-message', async (req, res) => {
         res.status(500).json({ error: '별점 저장에 실패했습니다.' });
     }
 });
-
-// 정적 파일 서빙
-app.use(express.static(staticPath));
-/*
-// API 라우트
-app.use('/api', (req, res, next) => {
-    if (req.path.startsWith('/chat') || req.path.startsWith('/history') || req.path.startsWith('/rate-message')) {
-        next();
-    } else {
-        res.status(404).json({ error: '잘못된 API 경로입니다.' });
-    }
-});
-*/
-// 클라이언트 라우팅을 위한 폴백
-// 모든 비-API 경로에 대해서만 index.html 서빙
-app.get('*', (req, res) => {
-    if (!req.path.startsWith('/api/')) {
-      res.sendFile(path.join(staticPath, 'index.html'));
-    }
-  });
 
 // 서버 시작
 app.listen(port, '0.0.0.0', () => {
