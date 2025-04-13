@@ -4,13 +4,11 @@ import { sendMessage } from '../services/api'
 
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || 'http://localhost:3000';
 
-// StarRating 컴포넌트 수정
 const StarRating = ({ messageId, initialRating = 0 }) => {
   const [rating, setRating] = useState(initialRating);
   const [hover, setHover] = useState(0);
   const [isSubmitting, setIsSubmitting] = useState(false);
 
-  // 별점 클릭 핸들러
   const handleStarClick = async (value) => {
     if (!messageId) {
       console.error('Cannot rate: No messageId available');
@@ -21,14 +19,22 @@ const StarRating = ({ messageId, initialRating = 0 }) => {
 
     setIsSubmitting(true);
     try {
+      const participantId = localStorage.getItem('participantId');
+      if (!participantId) {
+        throw new Error('참여자 ID가 없습니다.');
+      }
+
+      console.log('별점 저장 시도:', { messageId, rating: value, participantId });
+
       const response = await fetch(`${API_BASE_URL}/api/rate-message`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
         },
         body: JSON.stringify({ 
-          messageId: messageId,
-          rating: value
+          messageId,
+          rating: value,
+          participantId
         }),
       });
 
@@ -38,9 +44,11 @@ const StarRating = ({ messageId, initialRating = 0 }) => {
         throw new Error(data.error || '별점 저장에 실패했습니다');
       }
 
+      console.log('별점 저장 성공:', data);
       setRating(value);
     } catch (error) {
       console.error('Rating error:', error);
+      alert(error.message || '별점 저장에 실패했습니다.');
     } finally {
       setIsSubmitting(false);
     }
@@ -64,61 +72,101 @@ const StarRating = ({ messageId, initialRating = 0 }) => {
   );
 };
 
+const ParticipantIdInput = ({ onIdSubmit }) => {
+  const [id, setId] = useState('');
+  const [error, setError] = useState('');
+
+  const handleSubmit = (e) => {
+    e.preventDefault();
+    if (!id.trim()) {
+      setError('참여자 ID를 입력해주세요');
+      return;
+    }
+    localStorage.setItem('participantId', id);
+    onIdSubmit(id);
+  };
+
+  return (
+    <ParticipantIdContainer>
+      <ParticipantIdForm onSubmit={handleSubmit}>
+        <ParticipantIdInputField
+          type="text"
+          value={id}
+          onChange={(e) => setId(e.target.value)}
+          placeholder="참여자 ID를 입력하세요"
+        />
+        <ParticipantIdSubmitButton type="submit">시작</ParticipantIdSubmitButton>
+      </ParticipantIdForm>
+      {error && <ErrorMessage>{error}</ErrorMessage>}
+    </ParticipantIdContainer>
+  );
+};
+
 const ChatPanel = ({ currentImageId, chatHistory, setChatHistory, onRequestImageSend }) => {
   const [message, setMessage] = useState('')
   const [previewImage, setPreviewImage] = useState(null)
   const [isLoading, setIsLoading] = useState(false)
   const chatContainerRef = useRef(null)
   const textAreaRef = useRef(null)
-  const [sessionId, setSessionId] = useState(Date.now().toString());
+  const [participantId, setParticipantId] = useState('')
+  const [showParticipantInput, setShowParticipantInput] = useState(true)
+  const [inputError, setInputError] = useState('')
 
-  // 채팅 기록 불러오기
-  const loadChatHistory = async () => {
+  useEffect(() => {
+    localStorage.removeItem('participantId');
+    setShowParticipantInput(true);
+  }, []);
+
+  const handleParticipantIdSubmit = (id) => {
+    if (!id.trim()) {
+      setInputError('참여자 ID를 입력해주세요.');
+      return;
+    }
+    
+    if (!/^\d+$/.test(id)) {
+      setInputError('참여자 ID는 숫자만 입력 가능합니다.');
+      return;
+    }
+
+    setInputError('');
+    setParticipantId(id);
+    localStorage.setItem('participantId', id);
+    setShowParticipantInput(false);
+    loadChatHistory(id);
+  };
+
+  const loadChatHistory = async (id) => {
     try {
-      const response = await fetch(`${API_BASE_URL}/api/history`);
+      if (!id) {
+        console.log('참여자 ID가 없어 채팅 기록을 불러올 수 없습니다.');
+        return;
+      }
+      console.log('채팅 기록 불러오기 시도:', id);
+      const response = await fetch(`${API_BASE_URL}/api/history?participantId=${encodeURIComponent(id)}`);
       if (!response.ok) {
-        throw new Error('채팅 기록을 불러오는데 실패했습니다');
+        const errorData = await response.json();
+        throw new Error(errorData.error || '채팅 기록을 불러오는데 실패했습니다');
       }
       const data = await response.json();
       if (data.history && data.history.length > 0) {
         const sortedHistory = data.history.map(msg => {
-          // 시스템 메시지 처리
-          if (msg.type === 'system') {
-            return {
-              id: msg._id || Date.now(),
-              type: 'system',
-              content: msg.content,
-              timestamp: new Date(msg.timestamp),
-              image: msg.image,
-              mongoId: msg._id // mongoId 확실히 설정
-            };
-          }
-          
-          // 사용자와 AI 메시지 처리
           const isUserMessage = msg.message !== undefined;
           return {
-            id: msg._id || Date.now(),
-            type: isUserMessage ? 'user' : 'ai',
+            id: msg._id || `${Date.now()}-${Math.random()}`,
+            type: msg.type || (isUserMessage ? 'user' : 'ai'),
             content: isUserMessage ? msg.message : msg.reply,
             timestamp: new Date(msg.timestamp),
-            mongoId: msg._id, // _id를 직접 사용
+            mongoId: msg._id,
             rating: msg.satisfaction || 0,
             image: msg.image
           };
         }).sort((a, b) => new Date(a.timestamp) - new Date(b.timestamp));
-        
-        console.log('불러온 채팅 기록:', sortedHistory);
         setChatHistory(sortedHistory);
       }
     } catch (error) {
       console.error('채팅 기록 불러오기 오류:', error);
     }
   };
-
-  // 컴포넌트 마운트 시 채팅 기록 불러오기
-  useEffect(() => {
-    loadChatHistory();
-  }, []);
 
   useEffect(() => {
     if (chatContainerRef.current) {
@@ -144,12 +192,14 @@ const ChatPanel = ({ currentImageId, chatHistory, setChatHistory, onRequestImage
   const handleSubmit = async (e) => {
     if (e) {
       e.preventDefault();
-      if (e.key === 'Enter' && e.shiftKey) {
-        return;
-      }
+      if (e.key === 'Enter' && e.shiftKey) return;
     }
-    
+
     if (!message.trim() && !previewImage) return;
+    if (!participantId) {
+      console.error('참여자 ID가 없습니다.');
+      return;
+    }
 
     const newMessage = {
       id: Date.now(),
@@ -162,9 +212,7 @@ const ChatPanel = ({ currentImageId, chatHistory, setChatHistory, onRequestImage
     setChatHistory(prev => [...prev, newMessage]);
     setMessage('');
     setPreviewImage(null);
-    if (textAreaRef.current) {
-      textAreaRef.current.style.height = "40px";
-    }
+    if (textAreaRef.current) textAreaRef.current.style.height = "40px";
 
     setIsLoading(true);
     try {
@@ -176,28 +224,28 @@ const ChatPanel = ({ currentImageId, chatHistory, setChatHistory, onRequestImage
         body: JSON.stringify({ 
           message,
           image: previewImage,
-          timestamp: new Date().toISOString()
+          participantId
         }),
       });
 
       if (!response.ok) {
-        throw new Error('AI 응답을 받아오는데 실패했습니다');
+        const errorData = await response.json();
+        throw new Error(errorData.error || 'AI 응답을 받아오는데 실패했습니다');
       }
 
       const data = await response.json();
-      console.log('Server response:', data);
+      const rawId = data.messageId;
+      const mongoId = (rawId && typeof rawId === 'object' && rawId.$oid) ? rawId.$oid : rawId;
 
-      // 새로운 메시지 생성
       const aiMessage = {
         id: Date.now() + 1,
         type: 'ai',
         content: data.reply,
         timestamp: new Date(),
-        mongoId: data.messageId || data._id,  // messageId를 우선적으로 사용
+        mongoId: mongoId,
         rating: 0
       };
 
-      // chatHistory 업데이트
       setChatHistory(prev => [...prev, aiMessage]);
 
     } catch (error) {
@@ -224,41 +272,42 @@ const ChatPanel = ({ currentImageId, chatHistory, setChatHistory, onRequestImage
     }
   };
 
-  const handleDeleteImage = () => {
-    setPreviewImage(null);
-  };
+  const handleDeleteImage = () => setPreviewImage(null);
 
-  // 컴포넌트 마운트 시 세션 ID만 생성
-  useEffect(() => {
-    setSessionId(Date.now().toString());
-  }, []);
+  if (showParticipantInput) {
+    return (
+      <ParticipantIdContainer>
+        <ParticipantIdForm onSubmit={(e) => {
+          e.preventDefault();
+          const inputId = e.target.participantId.value;
+          handleParticipantIdSubmit(inputId);
+        }}>
+          <h2>실험 참여자 ID 입력</h2>
+          <p>실험 진행자가 알려준 ID를 입력해주세요.</p>
+          <ParticipantIdInputField
+            name="participantId"
+            type="number"
+            placeholder="참여자 ID를 입력하세요 (숫자만)"
+            required
+            min="1"
+            autoFocus
+          />
+          {inputError && <ErrorMessage>{inputError}</ErrorMessage>}
+          <ParticipantIdSubmitButton type="submit">
+            시작하기
+          </ParticipantIdSubmitButton>
+        </ParticipantIdForm>
+      </ParticipantIdContainer>
+    );
+  }
 
   return (
     <Container>
       <ChatContainer ref={chatContainerRef}>
         <MessageWrapper>
-          {chatHistory.map((msg, index) => {
+          {chatHistory.map((msg) => {
             const isUser = msg.type === 'user';
             const isAI = msg.type === 'ai';
-            
-            if (msg.type === 'system') {
-              return (
-                <MessageBase key={msg.id} isUser={false}>
-                  <MessageContent isUser={false}>
-                    {msg.image && (
-                      <MessageImage 
-                        src={msg.image} 
-                        alt="System" 
-                        isUser={false}
-                      />
-                    )}
-                    <MessageBubble isUser={false}>
-                      {msg.content}
-                    </MessageBubble>
-                  </MessageContent>
-                </MessageBase>
-              );
-            }
 
             return (
               <MessageBase key={msg.id} isUser={isUser}>
@@ -276,7 +325,7 @@ const ChatPanel = ({ currentImageId, chatHistory, setChatHistory, onRequestImage
                       <MessageBubble isUser={isUser}>
                         {msg.content}
                       </MessageBubble>
-                      {!isUser && (  // AI 메시지일 때는 항상 별점 표시
+                      {isAI && msg.mongoId && (
                         <StarRating 
                           messageId={msg.mongoId} 
                           initialRating={msg.rating || 0} 
@@ -291,20 +340,16 @@ const ChatPanel = ({ currentImageId, chatHistory, setChatHistory, onRequestImage
           {isLoading && (
             <MessageBase isUser={false}>
               <MessageContent isUser={false}>
-                <MessageBubble isUser={false}>
-                  응답을 생성하는 중...
-                </MessageBubble>
+                <MessageBubble isUser={false}>응답을 생성하는 중...</MessageBubble>
               </MessageContent>
             </MessageBase>
           )}
         </MessageWrapper>
       </ChatContainer>
-      
+
       <InputSection>
         <InputContainer>
-          <AddButton onClick={handleImageClick}>
-            +
-          </AddButton>
+          <AddButton onClick={handleImageClick}>+</AddButton>
           <InputWrapper>
             {previewImage && (
               <PreviewContainer>
@@ -314,8 +359,6 @@ const ChatPanel = ({ currentImageId, chatHistory, setChatHistory, onRequestImage
             )}
             <TextArea
               ref={textAreaRef}
-              id="chatInput"
-              name="chatInput"
               value={message}
               onChange={(e) => {
                 handleTextareaChange(e);
@@ -331,9 +374,7 @@ const ChatPanel = ({ currentImageId, chatHistory, setChatHistory, onRequestImage
               disabled={isLoading}
             />
           </InputWrapper>
-          <SendButton onClick={handleSubmit} disabled={isLoading}>
-            전송
-          </SendButton>
+          <SendButton onClick={handleSubmit} disabled={isLoading}>전송</SendButton>
         </InputContainer>
       </InputSection>
     </Container>
@@ -359,7 +400,7 @@ const ChatContainer = styled.div`
 const MessageWrapper = styled.div`
   display: flex;
   flex-direction: column;
-  gap: 8px;
+  gap: 4px;
   width: 100%;
 `
 
@@ -370,15 +411,14 @@ const MessageBase = styled.div`
   position: relative;
   max-width: 100%;
   align-self: ${props => props.isUser ? 'flex-end' : 'flex-start'};
-  padding: 24px 40px 0 40px;  // 좌우 여백을 40px로 설정
-
+  padding: 24px 40px 0 40px;
   &::before {
     content: '${props => props.isUser ? 'User' : 'AI'}';
     font-size: 12px;
     color: #666;
     position: absolute;
     top: 4px;
-    ${props => props.isUser ? 'right: 40px;' : 'left: 40px;'}  // 라벨도 여백에 맞춤
+    ${props => props.isUser ? 'right: 40px;' : 'left: 40px;'}
   }
 `
 
@@ -408,7 +448,6 @@ const MessageImage = styled.img`
   box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
   cursor: pointer;
   transition: transform 0.2s;
-
   &:hover {
     transform: scale(1.02);
   }
@@ -440,11 +479,9 @@ const TextArea = styled.textarea`
   resize: none;
   transition: all 100ms;
   line-height: 24px;
-
   &::placeholder {
     color: #666;
   }
-
   &:focus {
     outline: none;
     border-color: #4F46E5;
@@ -460,7 +497,6 @@ const SendButton = styled.button`
   color: white;
   font-size: 14px;
   height: 40px;
-
   &:hover {
     background: #4338CA;
   }
@@ -474,7 +510,6 @@ const AddButton = styled.button`
   border: 1px solid #DDD;
   color: #666;
   font-size: 20px;
-  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
   display: flex;
   align-items: center;
   justify-content: center;
@@ -484,13 +519,11 @@ const AddButton = styled.button`
   padding: 0;
   line-height: 1;
   font-weight: 300;
-
   &:hover {
     background: #e9ecef;
     color: #4F46E5;
     border-color: #4F46E5;
   }
-
   &:focus {
     outline: none;
     border-color: #4F46E5;
@@ -535,7 +568,6 @@ const DeleteButton = styled.button`
   justify-content: center;
   cursor: pointer;
   font-size: 14px;
-  
   &:hover {
     background: rgba(0, 0, 0, 0.7);
   }
@@ -548,8 +580,7 @@ const StarsContainer = styled.div`
   justify-content: flex-start;
   opacity: 0.7;
   transition: opacity 0.2s;
-  margin-left: 12px;  // 별점 위치 조정
-
+  margin: 4px 0 0 16px;
   &:hover {
     opacity: 1;
   }
@@ -558,13 +589,94 @@ const StarsContainer = styled.div`
 const Star = styled.span`
   color: ${props => props.filled ? '#7c3aed' : '#d1d5db'};
   cursor: ${props => props.disabled ? 'wait' : 'pointer'};
-  font-size: 16px;
+  font-size: 20px;
   transition: all 0.2s;
   user-select: none;
-
   &:hover {
     transform: ${props => props.disabled ? 'none' : 'scale(1.2)'};
   }
 `
 
-export default ChatPanel
+const ParticipantIdContainer = styled.div`
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  height: 100vh;
+  background: #e5dbff;
+  padding: 20px;
+`;
+
+const ParticipantIdForm = styled.form`
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 20px;
+  width: 100%;
+  max-width: 400px;
+  background: white;
+  padding: 40px;
+  border-radius: 16px;
+  box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+
+  h2 {
+    margin: 0;
+    color: #4F46E5;
+    font-size: 24px;
+  }
+
+  p {
+    margin: 0;
+    color: #666;
+    text-align: center;
+    font-size: 14px;
+  }
+`;
+
+const ParticipantIdInputField = styled.input`
+  width: 100%;
+  padding: 12px;
+  border: 2px solid #7c3aed;
+  border-radius: 8px;
+  font-size: 16px;
+  outline: none;
+  text-align: center;
+  
+  &::-webkit-inner-spin-button,
+  &::-webkit-outer-spin-button {
+    -webkit-appearance: none;
+    margin: 0;
+  }
+  
+  &[type=number] {
+    -moz-appearance: textfield;
+  }
+  
+  &:focus {
+    border-color: #4f46e5;
+  }
+`;
+
+const ParticipantIdSubmitButton = styled.button`
+  width: 100%;
+  padding: 12px 24px;
+  background: #7c3aed;
+  color: white;
+  border: none;
+  border-radius: 8px;
+  font-size: 16px;
+  cursor: pointer;
+  transition: background-color 0.2s;
+  
+  &:hover {
+    background: #4f46e5;
+  }
+`;
+
+const ErrorMessage = styled.div`
+  color: #ef4444;
+  margin-top: 10px;
+  font-size: 14px;
+`;
+
+export default ChatPanel;

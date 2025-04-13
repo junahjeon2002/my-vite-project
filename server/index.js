@@ -34,7 +34,6 @@ console.log('MongoDB URL:', mongoUrl);
 console.log('OpenAI API Key:', openaiApiKey.substring(0, 5) + '...');
 
 const dbName = 'chatApp';
-const collectionName = 'messages';
 
 const client = new MongoClient(mongoUrl, {
   connectTimeoutMS: 5000,
@@ -66,19 +65,44 @@ if (!fs.existsSync(indexPath)) {
 console.log(`✅ 정적 파일 경로: ${staticPath}`);
 console.log(`✅ index.html 경로: ${indexPath}`);
 
+let isConnectedToMongo = false;
+
+async function connectToMongo() {
+  if (isConnectedToMongo) return true;
+  
+  try {
+    await client.connect();
+    await client.db('admin').command({ ping: 1 });
+    console.log('✅ MongoDB 연결 성공');
+    isConnectedToMongo = true;
+    return true;
+  } catch (err) {
+    console.error('❌ MongoDB 연결 실패:', err);
+    isConnectedToMongo = false;
+    return false;
+  }
+}
+
 app.post('/api/chat', async (req, res) => {
   try {
-    const { message, image } = req.body;
+    const { message, image, participantId } = req.body;
 
     console.log('📥 수신된 message:', message);
+    console.log('👤 참여자 ID:', participantId);
     if (image) console.log('🖼️ 이미지 포함');
 
     if (!message || typeof message !== 'string') {
       return res.status(400).json({ error: '유효한 메시지가 필요합니다.' });
     }
 
+    if (!participantId || typeof participantId !== 'string') {
+      return res.status(400).json({ error: '유효한 참여자 ID가 필요합니다.' });
+    }
+
     const isConnected = await connectToMongo();
-    if (!isConnected) return res.status(500).json({ error: 'MongoDB 연결 실패' });
+    if (!isConnected) {
+      return res.status(500).json({ error: 'MongoDB 연결 실패' });
+    }
 
     const systemMessage = `당신은 친절한 AI 어시스턴트입니다. 사용자의 질문에 명확하고 도움이 되는 답변을 제공해주세요.`;
 
@@ -104,12 +128,40 @@ app.post('/api/chat', async (req, res) => {
     console.log('✅ OpenAI 응답:', reply);
 
     const db = client.db(dbName);
-    const result = await db.collection(collectionName).insertMany([
-      { type: 'user', message, image: image || null, timestamp: new Date(), satisfaction: 0 },
-      { type: 'ai', reply, timestamp: new Date(), satisfaction: 0 }
-    ]);
+    
+    // 사용자 메시지와 AI 응답을 준비
+    const userMessage = {
+      _id: new ObjectId(),
+      type: 'user',
+      message: message,
+      image: image || null,
+      timestamp: new Date(),
+      satisfaction: 0
+    };
 
-    res.json({ reply, messageId: result.insertedIds[1] });
+    const aiMessage = {
+      _id: new ObjectId(),
+      type: 'ai',
+      reply: reply,
+      timestamp: new Date(),
+      satisfaction: 0
+    };
+
+    // 참여자의 컬렉션에 직접 메시지 추가
+    const result = await db.collection(participantId).insertMany([userMessage, aiMessage]);
+
+    console.log('✅ 메시지 저장 결과:', result);
+
+    if (!result.acknowledged) {
+      throw new Error('메시지 저장에 실패했습니다');
+    }
+
+    res.json({ 
+      reply,
+      messageId: aiMessage._id.toString(),
+      success: true 
+    });
+
   } catch (error) {
     console.error('🔥 오류 발생:', error);
     res.status(500).json({ error: '요청 처리 중 오류가 발생했습니다.' });
@@ -118,13 +170,27 @@ app.post('/api/chat', async (req, res) => {
 
 app.get('/api/history', async (req, res) => {
   try {
+    const { participantId } = req.query;
+
+    if (!participantId || typeof participantId !== 'string') {
+      return res.status(400).json({ error: '유효한 참여자 ID가 필요합니다.' });
+    }
+
     const isConnected = await connectToMongo();
-    if (!isConnected) return res.status(500).json({ error: 'MongoDB 연결 실패' });
+    if (!isConnected) {
+      return res.status(500).json({ error: 'MongoDB 연결 실패' });
+    }
 
     const db = client.db(dbName);
-    const history = await db.collection(collectionName).find().sort({ timestamp: 1 }).toArray();
+    
+    // 참여자의 컬렉션에서 모든 메시지 조회
+    const messages = await db.collection(participantId)
+      .find({})
+      .sort({ timestamp: 1 })
+      .toArray();
 
-    res.json({ history });
+    console.log(`✅ ${participantId} 참여자의 채팅 기록 ${messages.length}개 조회됨`);
+    res.json({ history: messages });
   } catch (err) {
     console.error('기록 불러오기 실패:', err);
     res.status(500).json({ error: '기록 불러오기 실패' });
@@ -132,28 +198,33 @@ app.get('/api/history', async (req, res) => {
 });
 
 app.post('/api/rate-message', async (req, res) => {
-  const { messageId, rating } = req.body;
+  const { messageId, rating, participantId } = req.body;
 
-  if (!messageId || isNaN(parseInt(rating)) || rating < 0 || rating > 5) {
+  if (!messageId || isNaN(parseInt(rating)) || rating < 0 || rating > 5 || !participantId) {
     return res.status(400).json({ error: '유효한 입력값이 필요합니다.' });
-  }
-
-  let objectId;
-  try {
-    objectId = new ObjectId(messageId);
-  } catch (err) {
-    return res.status(400).json({ error: '유효하지 않은 메시지 ID 형식입니다.' });
   }
 
   try {
     const isConnected = await connectToMongo();
-    if (!isConnected) return res.status(500).json({ error: 'MongoDB 연결 실패' });
+    if (!isConnected) {
+      return res.status(500).json({ error: 'MongoDB 연결 실패' });
+    }
+
+    let objectId;
+    try {
+      objectId = new ObjectId(messageId);
+    } catch (err) {
+      console.error('잘못된 messageId 형식:', messageId);
+      return res.status(400).json({ error: '유효하지 않은 메시지 ID 형식입니다.' });
+    }
 
     const db = client.db(dbName);
-    const result = await db.collection(collectionName).updateOne(
+    const result = await db.collection(participantId).updateOne(
       { _id: objectId },
       { $set: { satisfaction: parseInt(rating) } }
     );
+
+    console.log('별점 저장 결과:', result);
 
     if (result.matchedCount === 0) {
       return res.status(404).json({ error: '메시지를 찾을 수 없습니다.' });
@@ -168,21 +239,11 @@ app.post('/api/rate-message', async (req, res) => {
 
 app.use(express.static(staticPath));
 
-app.get('/*', (req, res) => {
-  if (!req.path.startsWith('/api/')) {
+app.get('*', (req, res, next) => {
+    if (req.path.startsWith('/api/')) return next(); 
     res.sendFile(indexPath);
-  }
-});
-
-async function connectToMongo() {
-  try {
-    await client.connect();
-    return true;
-  } catch (err) {
-    console.error('❌ MongoDB 연결 실패:', err);
-    return false;
-  }
-}
+  });
+  
 
 const startServer = async (port) => {
   try {
