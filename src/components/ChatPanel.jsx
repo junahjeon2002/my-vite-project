@@ -2,47 +2,49 @@ import React, { useState, useRef, useEffect } from 'react'
 import styled from '@emotion/styled'
 import { sendMessage } from '../services/api'
 
+const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || 'http://localhost:3000';
+
 // StarRating 컴포넌트 수정
 const StarRating = ({ messageId, initialRating = 0 }) => {
   const [rating, setRating] = useState(initialRating);
   const [hover, setHover] = useState(0);
   const [isSubmitting, setIsSubmitting] = useState(false);
 
-  const handleRating = async (value) => {
-    if (isSubmitting) return;
-    
-    setIsSubmitting(true);
+  // 별점 클릭 핸들러
+  const handleStarClick = async (value) => {
+    if (!messageId) {
+      console.error('Cannot rate: No messageId available');
+      return;
+    }
 
+    if (isSubmitting) return;
+
+    setIsSubmitting(true);
     try {
-      const response = await fetch('http://localhost:3000/api/rate-message', {
+      const response = await fetch(`${API_BASE_URL}/api/rate-message`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
         },
         body: JSON.stringify({ 
           messageId: messageId,
-          rating: value 
+          rating: value
         }),
       });
 
+      const data = await response.json();
+
       if (!response.ok) {
-        throw new Error('별점 저장에 실패했습니다');
+        throw new Error(data.error || '별점 저장에 실패했습니다');
       }
 
       setRating(value);
     } catch (error) {
-      console.error('Error saving rating:', error);
-      // 에러가 발생해도 UI는 업데이트
-      setRating(value);
+      console.error('Rating error:', error);
     } finally {
       setIsSubmitting(false);
     }
   };
-
-  // 컴포넌트가 마운트될 때 초기 별점 값 설정
-  useEffect(() => {
-    setRating(initialRating);
-  }, [initialRating]);
 
   return (
     <StarsContainer>
@@ -50,7 +52,7 @@ const StarRating = ({ messageId, initialRating = 0 }) => {
         <Star
           key={star}
           filled={star <= (hover || rating)}
-          onClick={() => handleRating(star)}
+          onClick={() => handleStarClick(star)}
           onMouseEnter={() => setHover(star)}
           onMouseLeave={() => setHover(0)}
           disabled={isSubmitting}
@@ -73,7 +75,7 @@ const ChatPanel = ({ currentImageId, chatHistory, setChatHistory, onRequestImage
   // 채팅 기록 불러오기
   const loadChatHistory = async () => {
     try {
-      const response = await fetch('http://localhost:3000/api/history');
+      const response = await fetch(`${API_BASE_URL}/api/history`);
       if (!response.ok) {
         throw new Error('채팅 기록을 불러오는데 실패했습니다');
       }
@@ -83,22 +85,23 @@ const ChatPanel = ({ currentImageId, chatHistory, setChatHistory, onRequestImage
           // 시스템 메시지 처리
           if (msg.type === 'system') {
             return {
-              id: msg._id,
+              id: msg._id || Date.now(),
               type: 'system',
               content: msg.content,
               timestamp: new Date(msg.timestamp),
-              image: msg.image
+              image: msg.image,
+              mongoId: msg._id // mongoId 확실히 설정
             };
           }
           
           // 사용자와 AI 메시지 처리
           const isUserMessage = msg.message !== undefined;
           return {
-            id: msg._id,
+            id: msg._id || Date.now(),
             type: isUserMessage ? 'user' : 'ai',
             content: isUserMessage ? msg.message : msg.reply,
             timestamp: new Date(msg.timestamp),
-            mongoId: msg._id,
+            mongoId: msg._id, // _id를 직접 사용
             rating: msg.satisfaction || 0,
             image: msg.image
           };
@@ -165,7 +168,7 @@ const ChatPanel = ({ currentImageId, chatHistory, setChatHistory, onRequestImage
 
     setIsLoading(true);
     try {
-      const response = await fetch('http://localhost:3000/api/chat', {
+      const response = await fetch(`${API_BASE_URL}/api/chat`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -182,16 +185,19 @@ const ChatPanel = ({ currentImageId, chatHistory, setChatHistory, onRequestImage
       }
 
       const data = await response.json();
-      
+      console.log('Server response:', data);
+
+      // 새로운 메시지 생성
       const aiMessage = {
-        id: data.messageId,
+        id: Date.now() + 1,
         type: 'ai',
         content: data.reply,
         timestamp: new Date(),
-        mongoId: data.messageId,
+        mongoId: data.messageId || data._id,  // messageId를 우선적으로 사용
         rating: 0
       };
-      
+
+      // chatHistory 업데이트
       setChatHistory(prev => [...prev, aiMessage]);
 
     } catch (error) {
@@ -270,7 +276,12 @@ const ChatPanel = ({ currentImageId, chatHistory, setChatHistory, onRequestImage
                       <MessageBubble isUser={isUser}>
                         {msg.content}
                       </MessageBubble>
-                      {!isUser && <StarRating messageId={msg.mongoId || msg._id} initialRating={msg.rating} />}
+                      {!isUser && (  // AI 메시지일 때는 항상 별점 표시
+                        <StarRating 
+                          messageId={msg.mongoId} 
+                          initialRating={msg.rating || 0} 
+                        />
+                      )}
                     </MessageWrapper>
                   )}
                 </MessageContent>
@@ -303,6 +314,8 @@ const ChatPanel = ({ currentImageId, chatHistory, setChatHistory, onRequestImage
             )}
             <TextArea
               ref={textAreaRef}
+              id="chatInput"
+              name="chatInput"
               value={message}
               onChange={(e) => {
                 handleTextareaChange(e);
