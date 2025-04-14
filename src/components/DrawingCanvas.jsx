@@ -19,7 +19,7 @@ const DrawingCanvas = forwardRef(({ onSendImage, currentImageIndex }, ref) => {
   const [drawingHistory, setDrawingHistory] = useState([])
   const [currentPath, setCurrentPath] = useState([])
 
-  const images = Array.from({ length: 29 }, (_, i) => `/images/${i + 1}.png`)
+  const images = Array.from({ length: 5 }, (_, i) => `/images/${i + 1}.png`)
 
   useEffect(() => {
     if (currentImageIndex < images.length) {

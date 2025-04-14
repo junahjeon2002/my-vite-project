@@ -97,7 +97,7 @@ const App = () => {
   }
 
   const handleNext = () => {
-    if (currentImageIndex < 28) { // 29개 이미지 (0-28)
+    if (currentImageIndex < 4) { // 5개 이미지 (0-4)
       setCurrentImageIndex(prev => prev + 1)
     }
   }
@@ -183,7 +183,7 @@ const App = () => {
         <NavButton onClick={handlePrevious} disabled={currentImageIndex === 0}>
           이전으로
         </NavButton>
-        <NavButton onClick={handleNext} disabled={currentImageIndex === 28}>
+        <NavButton onClick={handleNext} disabled={currentImageIndex === 4}>
           다음으로
         </NavButton>
       </Header>
