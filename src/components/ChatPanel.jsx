@@ -1,10 +1,11 @@
 import React, { useState, useRef, useEffect } from 'react'
 import styled from '@emotion/styled'
 import { sendMessage } from '../services/api'
+import Timer from './Timer'
 
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || 'http://localhost:3000';
 
-const StarRating = ({ messageId, initialRating = 0 }) => {
+const StarRating = ({ messageId, initialRating = 0, onRatingChange }) => {
   const [rating, setRating] = useState(initialRating);
   const [hover, setHover] = useState(0);
   const [isSubmitting, setIsSubmitting] = useState(false);
@@ -46,6 +47,9 @@ const StarRating = ({ messageId, initialRating = 0 }) => {
 
       console.log('별점 저장 성공:', data);
       setRating(value);
+      if (onRatingChange) {
+        onRatingChange(messageId, value);
+      }
     } catch (error) {
       console.error('Rating error:', error);
       alert(error.message || '별점 저장에 실패했습니다.');
@@ -74,6 +78,7 @@ const StarRating = ({ messageId, initialRating = 0 }) => {
 
 const ParticipantIdInput = ({ onIdSubmit }) => {
   const [id, setId] = useState('');
+  const [experimentId, setExperimentId] = useState('');
   const [error, setError] = useState('');
 
   const handleSubmit = (e) => {
@@ -82,111 +87,103 @@ const ParticipantIdInput = ({ onIdSubmit }) => {
       setError('참여자 ID를 입력해주세요');
       return;
     }
+    if (!experimentId.trim()) {
+      setError('실험 ID를 입력해주세요');
+      return;
+    }
+    if (parseInt(experimentId) < 1 || parseInt(experimentId) > 8) {
+      setError('실험 ID는 1부터 8까지의 숫자만 입력 가능합니다');
+      return;
+    }
     localStorage.setItem('participantId', id);
+    localStorage.setItem('experimentId', experimentId);
     onIdSubmit(id);
   };
 
   return (
     <ParticipantIdContainer>
       <ParticipantIdForm onSubmit={handleSubmit}>
-        <ParticipantIdInputField
-          type="text"
-          value={id}
-          onChange={(e) => setId(e.target.value)}
-          placeholder="참여자 ID를 입력하세요"
-        />
-        <ParticipantIdSubmitButton type="submit">시작</ParticipantIdSubmitButton>
+        <h2>실험 정보 입력</h2>
+        <InputGroup>
+          <InputLabel>실험 참여자 ID</InputLabel>
+          <ParticipantIdInputField
+            type="number"
+            value={id}
+            onChange={(e) => setId(e.target.value)}
+            placeholder="참여자 ID를 입력하세요"
+            required
+            min="1"
+            autoFocus
+          />
+        </InputGroup>
+        <InputGroup>
+          <InputLabel>실험 ID</InputLabel>
+          <ParticipantIdInputField
+            type="number"
+            value={experimentId}
+            onChange={(e) => setExperimentId(e.target.value)}
+            placeholder="실험 ID를 입력하세요 (1~8)"
+            required
+            min="1"
+            max="8"
+          />
+        </InputGroup>
+        {error && <ErrorMessage>{error}</ErrorMessage>}
+        <ParticipantIdSubmitButton type="submit">시작하기</ParticipantIdSubmitButton>
       </ParticipantIdForm>
-      {error && <ErrorMessage>{error}</ErrorMessage>}
     </ParticipantIdContainer>
   );
 };
 
-const ChatPanel = ({ currentImageId, chatHistory, setChatHistory, onRequestImageSend }) => {
-  const [message, setMessage] = useState('')
-  const [previewImage, setPreviewImage] = useState(null)
-  const [isLoading, setIsLoading] = useState(false)
-  const chatContainerRef = useRef(null)
-  const textAreaRef = useRef(null)
-  const [participantId, setParticipantId] = useState('')
-  const [showParticipantInput, setShowParticipantInput] = useState(true)
-  const [inputError, setInputError] = useState('')
+const ChatPanel = ({ isNonLLM = false, currentImageId: propCurrentImageId }) => {
+  const [message, setMessage] = useState('');
+  const [chatHistory, setChatHistory] = useState([]);
+  const [isLoading, setIsLoading] = useState(false);
+  const [participantId, setParticipantId] = useState('');
+  const [showParticipantInput, setShowParticipantInput] = useState(true);
+  const [previewImage, setPreviewImage] = useState(null);
+  const [currentImageId, setCurrentImageId] = useState(propCurrentImageId);
+  const textAreaRef = useRef(null);
 
+  // propCurrentImageId가 변경될 때 currentImageId 상태 업데이트
   useEffect(() => {
-    localStorage.removeItem('participantId');
-    setShowParticipantInput(true);
-  }, []);
+    setCurrentImageId(propCurrentImageId);
+  }, [propCurrentImageId]);
 
   const handleParticipantIdSubmit = (id) => {
-    if (!id.trim()) {
-      setInputError('참여자 ID를 입력해주세요.');
-      return;
-    }
-    
-    if (!/^\d+$/.test(id)) {
-      setInputError('참여자 ID는 숫자만 입력 가능합니다.');
-      return;
-    }
-
-    setInputError('');
     setParticipantId(id);
-    localStorage.setItem('participantId', id);
     setShowParticipantInput(false);
-    loadChatHistory(id);
   };
 
-  const loadChatHistory = async (id) => {
+  // 차트 변경 시 채팅 히스토리 초기화 및 새 히스토리 로드
+  useEffect(() => {
+    if (participantId && currentImageId) {
+      loadChatHistory();
+    } else {
+      setChatHistory([]);
+    }
+  }, [participantId, currentImageId]);
+
+  const loadChatHistory = async () => {
     try {
-      if (!id) {
-        console.log('참여자 ID가 없어 채팅 기록을 불러올 수 없습니다.');
-        return;
-      }
-      console.log('채팅 기록 불러오기 시도:', id);
-      const response = await fetch(`${API_BASE_URL}/api/history?participantId=${encodeURIComponent(id)}`);
+      const response = await fetch(`${API_BASE_URL}/api/history?participantId=${participantId}&chartId=${currentImageId || 'tutorial'}`);
       if (!response.ok) {
-        const errorData = await response.json();
-        throw new Error(errorData.error || '채팅 기록을 불러오는데 실패했습니다');
+        throw new Error('채팅 기록을 불러오는데 실패했습니다');
       }
       const data = await response.json();
-      if (data.history && data.history.length > 0) {
-        const sortedHistory = data.history.map(msg => {
-          const isUserMessage = msg.message !== undefined;
-          return {
-            id: msg._id || `${Date.now()}-${Math.random()}`,
-            type: msg.type || (isUserMessage ? 'user' : 'ai'),
-            content: isUserMessage ? msg.message : msg.reply,
-            timestamp: new Date(msg.timestamp),
-            mongoId: msg._id,
-            rating: msg.satisfaction || 0,
-            image: msg.image
-          };
-        }).sort((a, b) => new Date(a.timestamp) - new Date(b.timestamp));
-        setChatHistory(sortedHistory);
-      }
+      setChatHistory(data.history.map(msg => ({
+        id: msg._id,
+        type: msg.role === 'user' ? 'user' : 'ai',
+        content: msg.content,
+        image: msg.image,
+        timestamp: new Date(msg.timestamp),
+        mongoId: msg._id,
+        rating: msg.satisfaction || 0
+      })));
     } catch (error) {
-      console.error('채팅 기록 불러오기 오류:', error);
+      console.error('Error loading chat history:', error);
+      setChatHistory([]);
     }
-  };
-
-  useEffect(() => {
-    if (chatContainerRef.current) {
-      chatContainerRef.current.scrollTop = chatContainerRef.current.scrollHeight
-    }
-  }, [chatHistory])
-
-  const handleTextareaChange = (e) => {
-    const target = e.target;
-    target.style.height = "40px";
-    const scrollHeight = target.scrollHeight;
-    const lineHeight = 24;
-    if (scrollHeight > 7 * lineHeight) {
-      target.style.height = `${7 * lineHeight}px`;
-      target.style.overflowY = "auto";
-    } else {
-      target.style.height = `${scrollHeight}px`;
-      target.style.overflowY = "hidden";
-    }
-    target.scrollTop = target.scrollHeight;
   };
 
   const handleSubmit = async (e) => {
@@ -195,9 +192,16 @@ const ChatPanel = ({ currentImageId, chatHistory, setChatHistory, onRequestImage
       if (e.key === 'Enter' && e.shiftKey) return;
     }
 
-    if (!message.trim() && !previewImage) return;
     if (!participantId) {
-      console.error('참여자 ID가 없습니다.');
+      alert('참여자 ID가 없습니다.');
+      return;
+    }
+    if (!currentImageId) {
+      alert('차트가 선택되지 않았습니다.');
+      return;
+    }
+    if (!message.trim() && !previewImage) {
+      alert('메시지를 입력하거나 이미지를 첨부해주세요.');
       return;
     }
 
@@ -216,6 +220,30 @@ const ChatPanel = ({ currentImageId, chatHistory, setChatHistory, onRequestImage
 
     setIsLoading(true);
     try {
+      // 메시지 저장 요청
+      const payload = {
+        chartId: currentImageId || 'tutorial',
+        role: 'user',
+        content: message.trim() || '[이미지만 입력됨]',
+        image: previewImage || null
+      };
+
+      console.log('POST /api/messages payload:', payload);
+
+      const saveResponse = await fetch(`${API_BASE_URL}/api/messages`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify(payload),
+      });
+
+      if (!saveResponse.ok) {
+        const errorData = await saveResponse.json().catch(() => ({}));
+        throw new Error(errorData.error || '메시지 저장에 실패했습니다');
+      }
+
+      // 기존 채팅 응답 요청
       const response = await fetch(`${API_BASE_URL}/api/chat`, {
         method: 'POST',
         headers: {
@@ -224,7 +252,9 @@ const ChatPanel = ({ currentImageId, chatHistory, setChatHistory, onRequestImage
         body: JSON.stringify({ 
           message,
           image: previewImage,
-          participantId
+          participantId,
+          experimentId: localStorage.getItem('experimentId'),
+          chartId: currentImageId || 'tutorial'
         }),
       });
 
@@ -262,48 +292,65 @@ const ChatPanel = ({ currentImageId, chatHistory, setChatHistory, onRequestImage
     }
   };
 
+  const handleTextareaChange = (e) => {
+    const target = e.target;
+    target.style.height = "40px";
+    const scrollHeight = target.scrollHeight;
+    const lineHeight = 24;
+    if (scrollHeight > 7 * lineHeight) {
+      target.style.height = `${7 * lineHeight}px`;
+      target.style.overflowY = "auto";
+    } else {
+      target.style.height = `${scrollHeight}px`;
+      target.style.overflowY = "hidden";
+    }
+    target.scrollTop = target.scrollHeight;
+  };
+
+  // 마지막 AI 메시지가 평가되었는지 확인하는 함수
+  const isLastAIMessageRated = () => {
+    const aiMessages = chatHistory.filter(msg => msg.type === 'ai');
+    if (aiMessages.length === 0) return true;
+    const lastAIMessage = aiMessages[aiMessages.length - 1];
+    return lastAIMessage.rating > 0;
+  };
+
+  // TextArea의 disabled 상태를 결정하는 함수
+  const isInputDisabled = () => {
+    return isLoading || !isLastAIMessageRated() || isNonLLM;
+  };
+
+  // placeholder 텍스트를 결정하는 함수
+  const getPlaceholderText = () => {
+    if (isNonLLM) return "비LLM 조건입니다.";
+    if (isInputDisabled() && !isLoading) return "이전 응답을 평가해 주세요...";
+    return "메시지를 입력하세요...";
+  };
+
   const handleImageClick = () => {
-    if (onRequestImageSend) {
-      const canvas = document.querySelector('canvas');
-      if (canvas) {
-        const imageData = canvas.toDataURL('image/png');
-        setPreviewImage(imageData);
-      }
+    const canvas = document.querySelector('canvas');
+    if (canvas) {
+      const imageData = canvas.toDataURL('image/png');
+      setPreviewImage(imageData);
     }
   };
 
   const handleDeleteImage = () => setPreviewImage(null);
 
+  const handleRatingChange = (messageId, newRating) => {
+    setChatHistory(prev => prev.map(msg => 
+      msg.mongoId === messageId ? { ...msg, rating: newRating } : msg
+    ));
+  };
+
   if (showParticipantInput) {
-    return (
-      <ParticipantIdContainer>
-        <ParticipantIdForm onSubmit={(e) => {
-          e.preventDefault();
-          const inputId = e.target.participantId.value;
-          handleParticipantIdSubmit(inputId);
-        }}>
-          <h2>실험 참여자 ID 입력</h2>
-          <p>실험 진행자가 알려준 ID를 입력해주세요.</p>
-          <ParticipantIdInputField
-            name="participantId"
-            type="number"
-            placeholder="참여자 ID를 입력하세요 (숫자만)"
-            required
-            min="1"
-            autoFocus
-          />
-          {inputError && <ErrorMessage>{inputError}</ErrorMessage>}
-          <ParticipantIdSubmitButton type="submit">
-            시작하기
-          </ParticipantIdSubmitButton>
-        </ParticipantIdForm>
-      </ParticipantIdContainer>
-    );
+    return <ParticipantIdInput onIdSubmit={handleParticipantIdSubmit} />;
   }
 
   return (
     <Container>
-      <ChatContainer ref={chatContainerRef}>
+      <ChatContainer>
+        <Timer chartId={currentImageId} />
         <MessageWrapper>
           {chatHistory.map((msg) => {
             const isUser = msg.type === 'user';
@@ -328,7 +375,8 @@ const ChatPanel = ({ currentImageId, chatHistory, setChatHistory, onRequestImage
                       {isAI && msg.mongoId && (
                         <StarRating 
                           messageId={msg.mongoId} 
-                          initialRating={msg.rating || 0} 
+                          initialRating={msg.rating || 0}
+                          onRatingChange={handleRatingChange}
                         />
                       )}
                     </MessageWrapper>
@@ -349,7 +397,7 @@ const ChatPanel = ({ currentImageId, chatHistory, setChatHistory, onRequestImage
 
       <InputSection>
         <InputContainer>
-          <AddButton onClick={handleImageClick}>+</AddButton>
+          <AddButton onClick={handleImageClick} disabled={isInputDisabled()}>+</AddButton>
           <InputWrapper>
             {previewImage && (
               <PreviewContainer>
@@ -364,17 +412,17 @@ const ChatPanel = ({ currentImageId, chatHistory, setChatHistory, onRequestImage
                 handleTextareaChange(e);
                 setMessage(e.target.value);
               }}
-              placeholder="메시지를 입력하세요..."
+              placeholder={getPlaceholderText()}
               onKeyDown={(e) => {
                 if (e.key === 'Enter' && !e.shiftKey) {
                   e.preventDefault();
                   handleSubmit(e);
                 }
               }}
-              disabled={isLoading}
+              disabled={isInputDisabled()}
             />
           </InputWrapper>
-          <SendButton onClick={handleSubmit} disabled={isLoading}>전송</SendButton>
+          <SendButton onClick={handleSubmit} disabled={isInputDisabled()}>전송</SendButton>
         </InputContainer>
       </InputSection>
     </Container>
@@ -493,11 +541,12 @@ const SendButton = styled.button`
   border: none;
   border-radius: 8px;
   padding: 8px 16px;
-  cursor: pointer;
+  cursor: ${props => props.disabled ? 'not-allowed' : 'pointer'};
   color: white;
   font-size: 14px;
   height: 40px;
-  &:hover {
+  opacity: ${props => props.disabled ? 0.5 : 1};
+  &:hover:not(:disabled) {
     background: #4338CA;
   }
 `
@@ -513,13 +562,14 @@ const AddButton = styled.button`
   display: flex;
   align-items: center;
   justify-content: center;
-  cursor: pointer;
+  cursor: ${props => props.disabled ? 'not-allowed' : 'pointer'};
   transition: all 0.2s;
   flex-shrink: 0;
   padding: 0;
   line-height: 1;
   font-weight: 300;
-  &:hover {
+  opacity: ${props => props.disabled ? 0.5 : 1};
+  &:hover:not(:disabled) {
     background: #e9ecef;
     color: #4F46E5;
     border-color: #4F46E5;
@@ -611,36 +661,34 @@ const ParticipantIdForm = styled.form`
   display: flex;
   flex-direction: column;
   align-items: center;
-  gap: 20px;
+  gap: 16px;
   width: 100%;
-  max-width: 400px;
+  max-width: 320px;
   background: white;
-  padding: 40px;
+  padding: 32px;
   border-radius: 16px;
   box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
 
   h2 {
     margin: 0;
     color: #4F46E5;
-    font-size: 24px;
-  }
-
-  p {
-    margin: 0;
-    color: #666;
-    text-align: center;
-    font-size: 14px;
+    font-size: 20px;
+    margin-bottom: 4px;
   }
 `;
 
 const ParticipantIdInputField = styled.input`
   width: 100%;
-  padding: 12px;
-  border: 2px solid #7c3aed;
+  padding: 0 20px;
+  border: 1.5px solid #7c3aed;
   border-radius: 8px;
-  font-size: 16px;
+  font-size: 14px;
   outline: none;
   text-align: center;
+  height: 48px;
+  background: white;
+  color: #000000;
+  box-sizing: border-box;
   
   &::-webkit-inner-spin-button,
   &::-webkit-outer-spin-button {
@@ -655,28 +703,51 @@ const ParticipantIdInputField = styled.input`
   &:focus {
     border-color: #4f46e5;
   }
+
+  &::placeholder {
+    color: #666;
+    opacity: 0.8;
+  }
 `;
 
 const ParticipantIdSubmitButton = styled.button`
   width: 100%;
-  padding: 12px 24px;
+  padding: 0 20px;
   background: #7c3aed;
   color: white;
   border: none;
   border-radius: 8px;
-  font-size: 16px;
+  font-size: 14px;
   cursor: pointer;
+  height: 48px;
+  box-sizing: border-box;
   transition: background-color 0.2s;
+  font-weight: 500;
   
   &:hover {
     background: #4f46e5;
   }
 `;
 
+const InputGroup = styled.div`
+  width: 100%;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+`;
+
+const InputLabel = styled.label`
+  font-size: 13px;
+  color: #4F46E5;
+  font-weight: 500;
+  margin-left: 4px;
+`;
+
 const ErrorMessage = styled.div`
   color: #ef4444;
-  margin-top: 10px;
-  font-size: 14px;
+  margin-top: 8px;
+  font-size: 13px;
+  text-align: center;
 `;
 
 export default ChatPanel;

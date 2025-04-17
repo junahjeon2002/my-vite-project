@@ -10,8 +10,33 @@ const App = () => {
   const [chatHistory, setChatHistory] = useState([])
   const [view, setView] = useState('chat') // 'chat' or 'history'
   const [currentImageIndex, setCurrentImageIndex] = useState(0)
+  const [showParticipantInput, setShowParticipantInput] = useState(true)
   const canvasRef = useRef(null)
   const baseURL = import.meta.env.VITE_API_BASE_URL;
+
+  // 실험 조건 정의
+  const experimentConditions = {
+    "1": {
+      useLLM: {
+        2: true,  // 2번 이미지는 LLM 사용
+        4: true,  // 4번 이미지는 LLM 사용
+      }
+      // 나머지 이미지는 기본적으로 LLM 미사용
+    }
+  };
+
+  // 현재 이미지에서 LLM을 사용해야 하는지 확인하는 함수
+  const shouldUseLLM = () => {
+    const experimentId = localStorage.getItem('experimentId');
+    // 첫 번째 이미지(튜토리얼)는 항상 LLM 사용
+    if (currentImageIndex === 0) return true;
+    
+    // 실험 조건이 정의되지 않은 경우 기본값으로 LLM 사용
+    if (!experimentId || !experimentConditions[experimentId]) return true;
+
+    // 현재 이미지 번호에 대한 LLM 사용 여부 확인
+    return experimentConditions[experimentId].useLLM?.[currentImageIndex + 1] ?? false;
+  };
 
   // 대화 기록 저장 함수
   const saveChatHistory = async () => {
@@ -177,6 +202,14 @@ const App = () => {
     loadChatHistory();
   }, []);
 
+  useEffect(() => {
+    // 컴포넌트 마운트 시 localStorage에서 participantId 확인
+    const savedParticipantId = localStorage.getItem('participantId');
+    if (savedParticipantId) {
+      setShowParticipantInput(false);
+    }
+  }, []);
+
   return (
     <Container>
       <Header>
@@ -201,6 +234,7 @@ const App = () => {
               chatHistory={chatHistory}
               setChatHistory={setChatHistory}
               onRequestImageSend={handleImageSend}
+              isNonLLM={!shouldUseLLM()}
             />
           </ChatSection>
         </RightSection>
@@ -247,6 +281,7 @@ const ContentArea = styled.div`
   flex: 1;
   gap: 1rem;
   min-height: calc(100vh - 80px);
+  width: 100%;
 `
 
 const DrawingSection = styled.div`
@@ -285,18 +320,40 @@ const RightSection = styled.div`
   flex: 0.35;
   display: flex;
   flex-direction: column;
-  max-height: calc(100vh - 80px);
+  height: calc(100vh - 80px);
+  min-width: 320px;
+  border-radius: 12px;
+  border: 1px solid #e9ecef;
   overflow: hidden;
+  background: #E9ECEF;
 `
 
 const ChatSection = styled.div`
   flex: 1;
-  background: #E9ECEF;
   display: flex;
   flex-direction: column;
   overflow: hidden;
-  max-height: calc(100vh - 80px);
+  width: 100%;
+  height: 100%;
 `
+
+const NonLLMSection = styled.div`
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  align-items: center;
+  width: 100%;
+  height: 100%;
+`;
+
+const NonLLMMessage = styled.div`
+  font-size: 20px;
+  color: #666;
+  font-weight: 500;
+  text-align: center;
+  padding: 20px;
+`;
 
 const ImagePreview = styled.div`
   width: 100%;

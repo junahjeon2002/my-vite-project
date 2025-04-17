@@ -85,18 +85,10 @@ async function connectToMongo() {
 
 app.post('/api/chat', async (req, res) => {
   try {
-    const { message, image, participantId } = req.body;
-
-    console.log('📥 수신된 message:', message);
-    console.log('👤 참여자 ID:', participantId);
-    if (image) console.log('🖼️ 이미지 포함');
-
-    if (!message || typeof message !== 'string') {
-      return res.status(400).json({ error: '유효한 메시지가 필요합니다.' });
-    }
-
-    if (!participantId || typeof participantId !== 'string') {
-      return res.status(400).json({ error: '유효한 참여자 ID가 필요합니다.' });
+    const { message, image, participantId, experimentId, chartId = 'tutorial' } = req.body;
+    
+    if (!participantId) {
+      return res.status(400).json({ error: '참여자 ID가 필요합니다.' });
     }
 
     const isConnected = await connectToMongo();
@@ -104,73 +96,78 @@ app.post('/api/chat', async (req, res) => {
       return res.status(500).json({ error: 'MongoDB 연결 실패' });
     }
 
-    const systemMessage = `당신은 친절한 AI 어시스턴트입니다. 사용자의 질문에 명확하고 도움이 되는 답변을 제공해주세요.`;
+    const db = client.db(dbName);
 
-    const messages = image ? [
-      { role: 'system', content: systemMessage },
-      { role: 'user', content: [
-        { type: 'text', text: message },
-        { type: 'image_url', image_url: { url: image } }
-      ]}
-    ] : [
-      { role: 'system', content: systemMessage },
-      { role: 'user', content: message }
+    // 이전 이미지 메시지 찾기
+    const historyMessages = await db.collection(participantId)
+      .find({ chartId })
+      .sort({ timestamp: -1 })
+      .limit(10)
+      .toArray();
+
+    const lastImageMessage = historyMessages.find(m => m.image && m.role === 'user');
+
+    // 프롬프트 구성
+    const promptMessages = [
+      {
+        role: 'system',
+        content: '당신은 사용자와 시각 데이터를 기반으로 대화하는 AI입니다. 이미지 맥락을 기억하고 이어서 응답하세요.'
+      },
+      ...(lastImageMessage ? [
+        {
+          role: 'user',
+          content: [
+            { type: 'text', text: `이전 질문: ${lastImageMessage.content}` },
+            { type: 'image_url', image_url: { url: lastImageMessage.image } }
+          ]
+        },
+        ...(lastImageMessage.reply ? [{
+          role: 'assistant',
+          content: lastImageMessage.reply
+        }] : [])
+      ] : []),
+      {
+        role: 'user',
+        content: image ? [
+          { type: 'text', text: message },
+          { type: 'image_url', image_url: { url: image } }
+        ] : message
+      }
     ];
 
-    console.log('🟢 OpenAI 호출 중...');
     const completion = await openai.chat.completions.create({
       model: 'gpt-4o',
-      messages,
+      messages: promptMessages,
       max_tokens: 1000,
     });
 
     const reply = completion.choices[0].message.content;
-    console.log('✅ OpenAI 응답:', reply);
+    const messageId = new ObjectId();
 
-    const db = client.db(dbName);
-    
-    // 사용자 메시지와 AI 응답을 준비
-    const userMessage = {
-      _id: new ObjectId(),
-      type: 'user',
-      message: message,
-      image: image || null,
+    // 메시지 저장
+    await db.collection(participantId).insertOne({
+      _id: messageId,
+      chartId,
+      role: 'user',
+      content: message,
+      image: image,
       timestamp: new Date(),
-      satisfaction: 0
-    };
-
-    const aiMessage = {
-      _id: new ObjectId(),
-      type: 'ai',
-      reply: reply,
-      timestamp: new Date(),
-      satisfaction: 0
-    };
-
-    // 참여자의 컬렉션에 직접 메시지 추가
-    const result = await db.collection(participantId).insertMany([userMessage, aiMessage]);
-
-    console.log('✅ 메시지 저장 결과:', result);
-
-    if (!result.acknowledged) {
-      throw new Error('메시지 저장에 실패했습니다');
-    }
-
-    res.json({ 
-      reply,
-      messageId: aiMessage._id.toString(),
-      success: true 
+      reply: reply
     });
 
+    res.json({
+      reply,
+      messageId: messageId
+    });
   } catch (error) {
-    console.error('🔥 오류 발생:', error);
-    res.status(500).json({ error: '요청 처리 중 오류가 발생했습니다.' });
+    console.error('Error:', error);
+    res.status(500).json({ error: 'AI 응답 생성 중 오류가 발생했습니다.' });
   }
 });
 
 app.get('/api/history', async (req, res) => {
   try {
-    const { participantId } = req.query;
+    const { participantId, chartId = 'tutorial' } = req.query;
 
     if (!participantId || typeof participantId !== 'string') {
       return res.status(400).json({ error: '유효한 참여자 ID가 필요합니다.' });
@@ -183,13 +180,13 @@ app.get('/api/history', async (req, res) => {
 
     const db = client.db(dbName);
     
-    // 참여자의 컬렉션에서 모든 메시지 조회
+    // 참여자의 컬렉션에서 chartId에 해당하는 메시지만 조회
     const messages = await db.collection(participantId)
-      .find({})
+      .find({ chartId })
       .sort({ timestamp: 1 })
       .toArray();
 
-    console.log(`✅ ${participantId} 참여자의 채팅 기록 ${messages.length}개 조회됨`);
+    console.log(`✅ ${participantId} 참여자의 ${chartId} 차트 채팅 기록 ${messages.length}개 조회됨`);
     res.json({ history: messages });
   } catch (err) {
     console.error('기록 불러오기 실패:', err);
@@ -234,6 +231,71 @@ app.post('/api/rate-message', async (req, res) => {
   } catch (err) {
     console.error('별점 저장 오류:', err);
     res.status(500).json({ error: '별점 저장에 실패했습니다.' });
+  }
+});
+
+app.post('/api/messages', async (req, res) => {
+  try {
+    const { chartId, role, content, image } = req.body;
+
+    if (!chartId || !role || !content) {
+      return res.status(400).json({ error: '필수 필드가 누락되었습니다.' });
+    }
+
+    const isConnected = await connectToMongo();
+    if (!isConnected) {
+      return res.status(500).json({ error: 'MongoDB 연결 실패' });
+    }
+
+    const db = client.db(dbName);
+    const message = {
+      chartId,
+      role,
+      content,
+      image: image || null,
+      timestamp: new Date()
+    };
+
+    const result = await db.collection('messages').insertOne(message);
+
+    if (!result.acknowledged) {
+      throw new Error('메시지 저장에 실패했습니다');
+    }
+
+    res.status(201).json({ 
+      success: true,
+      messageId: result.insertedId
+    });
+
+  } catch (error) {
+    console.error('메시지 저장 오류:', error);
+    res.status(500).json({ error: '메시지 저장에 실패했습니다.' });
+  }
+});
+
+app.get('/api/messages', async (req, res) => {
+  try {
+    const { chartId } = req.query;
+
+    if (!chartId) {
+      return res.status(400).json({ error: 'chartId가 필요합니다.' });
+    }
+
+    const isConnected = await connectToMongo();
+    if (!isConnected) {
+      return res.status(500).json({ error: 'MongoDB 연결 실패' });
+    }
+
+    const db = client.db(dbName);
+    const messages = await db.collection('messages')
+      .find({ chartId })
+      .sort({ timestamp: 1 })
+      .toArray();
+
+    res.json(messages);
+  } catch (error) {
+    console.error('메시지 조회 오류:', error);
+    res.status(500).json({ error: '메시지 조회에 실패했습니다.' });
   }
 });
 
