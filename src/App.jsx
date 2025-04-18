@@ -3,6 +3,7 @@ import styled from '@emotion/styled'
 import DrawingCanvas from './components/DrawingCanvas'
 import ChatPanel from './components/ChatPanel'
 import ChatHistory from './components/ChatHistory'
+import Timer from './components/Timer'
 import { getConditionsForExperiment, getImagePath, getSystemPrompt, isNonLLM, getCurrentCondition } from './utils/experimentUtils'
 
 const App = () => {
@@ -282,6 +283,9 @@ const App = () => {
         <NavButton onClick={handlePrevious} disabled={currentImageIndex === 0}>
           이전으로
         </NavButton>
+        <TimerWrapper>
+          <Timer chartId={currentImageId} />
+        </TimerWrapper>
         <NavButton onClick={handleNext} disabled={currentImageIndex === 4}>
           다음으로
         </NavButton>
@@ -321,11 +325,28 @@ const Container = styled.div`
 
 const Header = styled.div`
   display: flex;
-  justify-content: flex-end;
+  justify-content: space-between;
+  align-items: center;
   padding: 0.5rem 1rem;
   background: #666;
   border-radius: 8px;
   height: 40px;
+`
+
+const TimerWrapper = styled.div`
+  position: static;
+  margin: 0;
+  
+  > div {
+    position: static;
+    background: transparent;
+    box-shadow: none;
+    padding: 0;
+    
+    > div {
+      color: white;
+    }
+  }
 `
 
 const NavButton = styled.button`

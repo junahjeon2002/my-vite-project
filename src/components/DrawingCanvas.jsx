@@ -259,87 +259,99 @@ const DrawingCanvas = forwardRef(({ onSendImage, currentImageIndex, currentImage
   }
 
   const undoLastAction = () => {
-    if (drawingHistory.length === 0) return
+    if (drawingHistory.length === 0) return;
 
-    const canvas = canvasRef.current
-    const ctx = canvas.getContext('2d')
+    const canvas = canvasRef.current;
+    const ctx = canvas.getContext('2d');
     
     // 캔버스 초기화
-    ctx.clearRect(0, 0, canvas.width, canvas.height)
+    ctx.clearRect(0, 0, canvas.width, canvas.height);
     
     // 현재 이미지 다시 로드
     if (propCurrentImage) {
-      ctx.drawImage(propCurrentImage, 0, 0)
+      const img = new Image();
+      img.onload = () => {
+        ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
+        
+        // 마지막 작업을 제외한 모든 작업 다시 그리기
+        const newHistory = drawingHistory.slice(0, -1);
+        newHistory.forEach(action => {
+          if (action.type === 'pen') {
+            ctx.beginPath();
+            ctx.moveTo(action.path[0].x, action.path[0].y);
+            action.path.forEach(point => {
+              ctx.lineTo(point.x, point.y);
+              ctx.strokeStyle = action.color;
+              ctx.lineWidth = 2;
+              ctx.lineCap = 'round';
+              ctx.lineJoin = 'round';
+              ctx.stroke();
+              ctx.beginPath();
+              ctx.moveTo(point.x, point.y);
+            });
+          }
+        });
+
+        // 선택 영역 업데이트
+        const newSelectedAreas = newHistory
+          .filter(action => action.type === 'select')
+          .map(action => action.area);
+        setSelectedAreas(newSelectedAreas);
+        
+        // 선택 레이어 다시 그리기
+        const selectionCtx = selectionRef.current.getContext('2d');
+        selectionCtx.clearRect(0, 0, selectionRef.current.width, selectionRef.current.height);
+        newSelectedAreas.forEach(area => {
+          const { x, y, width, height, color } = area;
+          selectionCtx.strokeStyle = color;
+          selectionCtx.lineWidth = 2;
+          selectionCtx.strokeRect(
+            Math.min(x, x + width),
+            Math.min(y, y + height),
+            Math.abs(width),
+            Math.abs(height)
+          );
+        });
+
+        setDrawingHistory(newHistory);
+      };
+      img.src = propCurrentImage;
+    } else {
+      // 이미지가 없는 경우 바로 히스토리 업데이트
+      const newHistory = drawingHistory.slice(0, -1);
+      setDrawingHistory(newHistory);
     }
-
-    // 마지막 작업을 제외한 모든 작업 다시 그리기
-    const newHistory = drawingHistory.slice(0, -1)
-    newHistory.forEach(action => {
-      if (action.type === 'pen') {
-        ctx.beginPath()
-        ctx.moveTo(action.path[0].x, action.path[0].y)
-        action.path.forEach(point => {
-          ctx.lineTo(point.x, point.y)
-          ctx.strokeStyle = action.color
-          ctx.lineWidth = 2
-          ctx.lineCap = 'round'
-          ctx.lineJoin = 'round'
-          ctx.stroke()
-          ctx.beginPath()
-          ctx.moveTo(point.x, point.y)
-        })
-      }
-    })
-
-    // 선택 영역 업데이트
-    const newSelectedAreas = newHistory
-      .filter(action => action.type === 'select')
-      .map(action => action.area)
-    setSelectedAreas(newSelectedAreas)
-    
-    // 선택 레이어 다시 그리기
-    const selectionCtx = selectionRef.current.getContext('2d')
-    selectionCtx.clearRect(0, 0, selectionRef.current.width, selectionRef.current.height)
-    newSelectedAreas.forEach(area => {
-      const { x, y, width, height, color } = area
-      selectionCtx.strokeStyle = color
-      selectionCtx.lineWidth = 2
-      selectionCtx.strokeRect(
-        Math.min(x, x + width),
-        Math.min(y, y + height),
-        Math.abs(width),
-        Math.abs(height)
-      )
-    })
-
-    setDrawingHistory(newHistory)
-  }
+  };
 
   const clearAll = () => {
     // 캔버스 초기화
     if (canvasRef.current) {
-      const canvas = canvasRef.current
-      const ctx = canvas.getContext('2d')
-      ctx.clearRect(0, 0, canvas.width, canvas.height)
+      const canvas = canvasRef.current;
+      const ctx = canvas.getContext('2d');
+      ctx.clearRect(0, 0, canvas.width, canvas.height);
       
       // 현재 이미지 다시 로드
       if (propCurrentImage) {
-        ctx.drawImage(propCurrentImage, 0, 0)
+        const img = new Image();
+        img.onload = () => {
+          ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
+        };
+        img.src = propCurrentImage;
       }
     }
     
     // 선택 레이어 초기화
     if (selectionRef.current) {
-      const ctx = selectionRef.current.getContext('2d')
-      ctx.clearRect(0, 0, selectionRef.current.width, selectionRef.current.height)
+      const ctx = selectionRef.current.getContext('2d');
+      ctx.clearRect(0, 0, selectionRef.current.width, selectionRef.current.height);
     }
     
     // 모든 상태 초기화
-    setSelectedAreas([])
-    setSelectedImageDatas([])
-    setCurrentArea(null)
-    setDrawingHistory([])
-  }
+    setSelectedAreas([]);
+    setSelectedImageDatas([]);
+    setCurrentArea(null);
+    setDrawingHistory([]);
+  };
 
   return (
     <CanvasContainer>

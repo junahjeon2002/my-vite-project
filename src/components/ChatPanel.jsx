@@ -1,7 +1,6 @@
 import React, { useState, useRef, useEffect } from 'react'
 import styled from '@emotion/styled'
 import { sendMessage } from '../services/api'
-import Timer from './Timer'
 import { getSystemPrompt } from '../utils/experimentUtils'
 
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || 'http://localhost:3000';
@@ -139,10 +138,14 @@ const ParticipantIdInput = ({ onIdSubmit }) => {
 const SystemPromptBar = styled.div`
   background: #666;
   color: white;
-  padding: 12px 20px;
+  padding: 16px 20px;
   font-size: 14px;
   text-align: center;
   width: 100%;
+  white-space: pre-line;
+  display: flex;
+  align-items: center;
+  justify-content: center;
 `
 
 const ChatPanel = ({ isNonLLM = false, currentImageId: propCurrentImageId }) => {
@@ -200,17 +203,39 @@ const ChatPanel = ({ isNonLLM = false, currentImageId: propCurrentImageId }) => 
 
       const data = await response.json();
       if (data.history && Array.isArray(data.history)) {
-        const historyMessages = data.history.map(msg => ({
-          id: msg._id,
-          type: msg.role === 'user' ? 'user' : 'ai',
-          content: msg.content,
-          image: msg.image,
-          timestamp: new Date(msg.timestamp),
-          mongoId: msg._id,
-          rating: msg.satisfaction || 0
-        }));
+        const historyMessages = data.history.map(msg => {
+          // 사용자 메시지와 AI 응답을 모두 포함
+          const messages = [];
+          
+          // 사용자 메시지 추가
+          messages.push({
+            id: msg._id,
+            type: 'user',
+            content: msg.content,
+            image: msg.image,
+            timestamp: new Date(msg.timestamp),
+            mongoId: msg._id,
+            rating: msg.satisfaction || 0
+          });
+
+          // AI 응답이 있는 경우 추가
+          if (msg.reply) {
+            messages.push({
+              id: `${msg._id}_ai`,
+              type: 'ai',
+              content: msg.reply,
+              timestamp: new Date(msg.timestamp),
+              mongoId: msg._id,
+              rating: msg.satisfaction || 0
+            });
+          }
+
+          return messages;
+        }).flat(); // 배열을 평탄화하여 하나의 메시지 배열로 만듦
         
-        setChatHistory(historyMessages);
+        // 타임스탬프 순으로 정렬
+        const sortedMessages = historyMessages.sort((a, b) => a.timestamp - b.timestamp);
+        setChatHistory(sortedMessages);
       }
     } catch (error) {
       console.error('Error loading chat history:', error);
@@ -380,7 +405,6 @@ const ChatPanel = ({ isNonLLM = false, currentImageId: propCurrentImageId }) => 
     <Container>
       <SystemPromptBar>{systemPrompt}</SystemPromptBar>
       <ChatContainer>
-        <Timer chartId={currentImageId} />
         <MessageWrapper>
           {chatHistory.map((msg) => {
             const isUser = msg.type === 'user';
@@ -486,7 +510,7 @@ const MessageWrapper = styled.div`
 const MessageBase = styled.div`
   display: flex;
   justify-content: ${props => props.isUser ? 'flex-end' : 'flex-start'};
-  padding: ${props => props.type === 'system' ? '12px 0' : '8px 40px'};
+  padding: ${props => props.type === 'system' ? '12px 0' : '8px 20px'};
   position: relative;
   width: 100%;
   box-sizing: border-box;
@@ -496,7 +520,7 @@ const MessageBase = styled.div`
     color: #666;
     position: absolute;
     top: -4px;
-    ${props => props.isUser ? 'right: 40px' : 'left: 40px'};
+    ${props => props.isUser ? 'right: 20px' : 'left: 20px'};
   }
 `
 
