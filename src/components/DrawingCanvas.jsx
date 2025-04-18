@@ -3,7 +3,7 @@ import { CanvasContainer, Canvas, SelectionLayer } from './styles/DrawingCanvasS
 import ToolBar from './ToolBar'
 import styled from '@emotion/styled'
 
-const DrawingCanvas = forwardRef(({ onSendImage, currentImageIndex }, ref) => {
+const DrawingCanvas = forwardRef(({ onSendImage, currentImageIndex, currentImage: propCurrentImage }, ref) => {
   const canvasRef = useRef(null)
   const selectionRef = useRef(null)
   const combinedCanvasRef = useRef(null)
@@ -14,12 +14,17 @@ const DrawingCanvas = forwardRef(({ onSendImage, currentImageIndex }, ref) => {
   const [currentArea, setCurrentArea] = useState(null)
   const [selectedAreas, setSelectedAreas] = useState([])
   const [selectedImageDatas, setSelectedImageDatas] = useState([])
-  const [currentImage, setCurrentImage] = useState(null)
   const [showCompletion, setShowCompletion] = useState(false)
   const [drawingHistory, setDrawingHistory] = useState([])
   const [currentPath, setCurrentPath] = useState([])
 
   const images = Array.from({ length: 5 }, (_, i) => `/images/${i + 1}.png`)
+
+  useEffect(() => {
+    if (propCurrentImage) {
+      loadImage(propCurrentImage);
+    }
+  }, [propCurrentImage]);
 
   useEffect(() => {
     if (currentImageIndex < images.length) {
@@ -53,7 +58,7 @@ const DrawingCanvas = forwardRef(({ onSendImage, currentImageIndex }, ref) => {
     updateSelectionLayerSize()
     window.addEventListener('resize', updateSelectionLayerSize)
     return () => window.removeEventListener('resize', updateSelectionLayerSize)
-  }, [currentImage])
+  }, [propCurrentImage])
 
   useEffect(() => {
     if (ref) {
@@ -77,32 +82,35 @@ const DrawingCanvas = forwardRef(({ onSendImage, currentImageIndex }, ref) => {
     }
   }, [ref, selectedAreas])
 
-  const loadImage = (src) => {
-    const img = new Image()
-    img.src = src
-    img.onload = () => {
-      setCurrentImage(img)
-      const canvas = canvasRef.current
-      const ctx = canvas.getContext('2d')
-      
-      // 캔버스 크기를 원본 이미지 크기로 설정
-      canvas.width = img.width
-      canvas.height = img.height
-      
-      // 이미지를 원본 크기로 그린 후, CSS로 크기 조정
-      ctx.drawImage(img, 0, 0)
-      canvas.style.width = '100%'
-      canvas.style.height = 'auto'
+  const loadImage = (imagePath) => {
+    const canvas = canvasRef.current;
+    if (!canvas) return;
 
-      // 선택 레이어도 동일한 크기로 설정
+    const ctx = canvas.getContext('2d');
+    const img = new Image();
+    
+    img.onload = () => {
+      // 캔버스 크기를 이미지 크기에 맞게 조정
+      canvas.width = img.width;
+      canvas.height = img.height;
+      
+      // 이미지 그리기
+      ctx.clearRect(0, 0, canvas.width, canvas.height);
+      ctx.drawImage(img, 0, 0);
+      
+      // 선택 레이어도 같은 크기로 조정
       if (selectionRef.current) {
-        selectionRef.current.width = img.width
-        selectionRef.current.height = img.height
-        selectionRef.current.style.width = '100%'
-        selectionRef.current.style.height = 'auto'
+        selectionRef.current.width = img.width;
+        selectionRef.current.height = img.height;
       }
-    }
-  }
+    };
+    
+    img.onerror = (error) => {
+      console.error('이미지 로드 실패:', error);
+    };
+    
+    img.src = imagePath;
+  };
 
   const handlePrevious = () => {
     if (currentImageIndex > 0) {
@@ -260,8 +268,8 @@ const DrawingCanvas = forwardRef(({ onSendImage, currentImageIndex }, ref) => {
     ctx.clearRect(0, 0, canvas.width, canvas.height)
     
     // 현재 이미지 다시 로드
-    if (currentImage) {
-      ctx.drawImage(currentImage, 0, 0)
+    if (propCurrentImage) {
+      ctx.drawImage(propCurrentImage, 0, 0)
     }
 
     // 마지막 작업을 제외한 모든 작업 다시 그리기
@@ -315,8 +323,8 @@ const DrawingCanvas = forwardRef(({ onSendImage, currentImageIndex }, ref) => {
       ctx.clearRect(0, 0, canvas.width, canvas.height)
       
       // 현재 이미지 다시 로드
-      if (currentImage) {
-        ctx.drawImage(currentImage, 0, 0)
+      if (propCurrentImage) {
+        ctx.drawImage(propCurrentImage, 0, 0)
       }
     }
     

@@ -2,6 +2,7 @@ import React, { useState, useRef, useEffect } from 'react'
 import styled from '@emotion/styled'
 import { sendMessage } from '../services/api'
 import Timer from './Timer'
+import { getSystemPrompt } from '../utils/experimentUtils'
 
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || 'http://localhost:3000';
 
@@ -135,6 +136,15 @@ const ParticipantIdInput = ({ onIdSubmit }) => {
   );
 };
 
+const SystemPromptBar = styled.div`
+  background: #666;
+  color: white;
+  padding: 12px 20px;
+  font-size: 14px;
+  text-align: center;
+  width: 100%;
+`
+
 const ChatPanel = ({ isNonLLM = false, currentImageId: propCurrentImageId }) => {
   const [message, setMessage] = useState('');
   const [chatHistory, setChatHistory] = useState([]);
@@ -143,6 +153,7 @@ const ChatPanel = ({ isNonLLM = false, currentImageId: propCurrentImageId }) => 
   const [showParticipantInput, setShowParticipantInput] = useState(true);
   const [previewImage, setPreviewImage] = useState(null);
   const [currentImageId, setCurrentImageId] = useState(propCurrentImageId);
+  const [systemPrompt, setSystemPrompt] = useState('');
   const textAreaRef = useRef(null);
 
   // propCurrentImageId가 변경될 때 currentImageId 상태 업데이트
@@ -166,20 +177,41 @@ const ChatPanel = ({ isNonLLM = false, currentImageId: propCurrentImageId }) => 
 
   const loadChatHistory = async () => {
     try {
-      const response = await fetch(`${API_BASE_URL}/api/history?participantId=${participantId}&chartId=${currentImageId || 'tutorial'}`);
-      if (!response.ok) {
-        throw new Error('채팅 기록을 불러오는데 실패했습니다');
+      // 차트별 시스템 프롬프트 가져오기
+      let newSystemPrompt = '이것은 튜토리얼입니다.';
+      if (currentImageId && currentImageId !== 'tutorial') {
+        newSystemPrompt = getSystemPrompt(currentImageId);
       }
+      setSystemPrompt(newSystemPrompt);
+
+      // 초기 시스템 메시지는 더 이상 채팅 히스토리에 포함되지 않음
+      setChatHistory([]);
+
+      const response = await fetch(`${API_BASE_URL}/api/history?participantId=${participantId}&chartId=${currentImageId || 'tutorial'}`);
+      
+      if (!response.ok) {
+        throw new Error(`HTTP error! status: ${response.status}`);
+      }
+      
+      const contentType = response.headers.get("content-type");
+      if (!contentType || !contentType.includes("application/json")) {
+        throw new TypeError("서버에서 JSON이 아닌 다른 형식의 데이터를 반환했습니다");
+      }
+
       const data = await response.json();
-      setChatHistory(data.history.map(msg => ({
-        id: msg._id,
-        type: msg.role === 'user' ? 'user' : 'ai',
-        content: msg.content,
-        image: msg.image,
-        timestamp: new Date(msg.timestamp),
-        mongoId: msg._id,
-        rating: msg.satisfaction || 0
-      })));
+      if (data.history && Array.isArray(data.history)) {
+        const historyMessages = data.history.map(msg => ({
+          id: msg._id,
+          type: msg.role === 'user' ? 'user' : 'ai',
+          content: msg.content,
+          image: msg.image,
+          timestamp: new Date(msg.timestamp),
+          mongoId: msg._id,
+          rating: msg.satisfaction || 0
+        }));
+        
+        setChatHistory(historyMessages);
+      }
     } catch (error) {
       console.error('Error loading chat history:', error);
       setChatHistory([]);
@@ -194,10 +226,6 @@ const ChatPanel = ({ isNonLLM = false, currentImageId: propCurrentImageId }) => 
 
     if (!participantId) {
       alert('참여자 ID가 없습니다.');
-      return;
-    }
-    if (!currentImageId) {
-      alert('차트가 선택되지 않았습니다.');
       return;
     }
     if (!message.trim() && !previewImage) {
@@ -225,7 +253,8 @@ const ChatPanel = ({ isNonLLM = false, currentImageId: propCurrentImageId }) => 
         chartId: currentImageId || 'tutorial',
         role: 'user',
         content: message.trim() || '[이미지만 입력됨]',
-        image: previewImage || null
+        image: previewImage || null,
+        participantId: participantId
       };
 
       console.log('POST /api/messages payload:', payload);
@@ -349,15 +378,17 @@ const ChatPanel = ({ isNonLLM = false, currentImageId: propCurrentImageId }) => 
 
   return (
     <Container>
+      <SystemPromptBar>{systemPrompt}</SystemPromptBar>
       <ChatContainer>
         <Timer chartId={currentImageId} />
         <MessageWrapper>
           {chatHistory.map((msg) => {
             const isUser = msg.type === 'user';
             const isAI = msg.type === 'ai';
+            const isSystem = msg.type === 'system';
 
             return (
-              <MessageBase key={msg.id} isUser={isUser}>
+              <MessageBase key={msg.id} isUser={isUser} type={msg.type}>
                 <MessageContent isUser={isUser}>
                   {msg.image && (
                     <MessageImage 
@@ -369,10 +400,10 @@ const ChatPanel = ({ isNonLLM = false, currentImageId: propCurrentImageId }) => 
                   )}
                   {msg.content && (
                     <MessageWrapper>
-                      <MessageBubble isUser={isUser}>
+                      <MessageBubble isUser={isUser} type={msg.type}>
                         {msg.content}
                       </MessageBubble>
-                      {isAI && msg.mongoId && (
+                      {isAI && msg.mongoId && !isSystem && (
                         <StarRating 
                           messageId={msg.mongoId} 
                           initialRating={msg.rating || 0}
@@ -454,40 +485,39 @@ const MessageWrapper = styled.div`
 
 const MessageBase = styled.div`
   display: flex;
-  flex-direction: column;
-  gap: 8px;
+  justify-content: ${props => props.isUser ? 'flex-end' : 'flex-start'};
+  padding: ${props => props.type === 'system' ? '12px 0' : '8px 40px'};
   position: relative;
-  max-width: 100%;
-  align-self: ${props => props.isUser ? 'flex-end' : 'flex-start'};
-  padding: 24px 40px 0 40px;
+  width: 100%;
+  box-sizing: border-box;
   &::before {
-    content: '${props => props.isUser ? 'User' : 'AI'}';
+    content: '${props => props.type === 'system' ? '' : props.isUser ? 'User' : 'AI'}';
     font-size: 12px;
     color: #666;
     position: absolute;
-    top: 4px;
-    ${props => props.isUser ? 'right: 40px;' : 'left: 40px;'}
+    top: -4px;
+    ${props => props.isUser ? 'right: 40px' : 'left: 40px'};
   }
 `
 
 const MessageContent = styled.div`
   display: flex;
   flex-direction: column;
-  gap: 12px;
-  width: clamp(120px, 65%, 600px);
-  align-self: ${props => props.isUser ? 'flex-end' : 'flex-start'};
+  gap: 8px;
+  max-width: 70%;
 `
 
 const MessageBubble = styled.div`
-  background: ${props => props.isUser ? '#7c3aed' : 'white'};
-  color: ${props => props.isUser ? 'white' : '#000'};
-  padding: 12px 16px;
-  border-radius: ${props => props.isUser ? '16px 16px 0 16px' : '16px 16px 16px 0'};
-  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.1);
-  font-size: 14px;
+  background: ${props => props.type === 'system' ? 'transparent' : props.isUser ? '#7c3aed' : 'white'};
+  color: ${props => props.type === 'system' ? '#666' : props.isUser ? 'white' : '#000'};
+  padding: ${props => props.type === 'system' ? '0' : '12px 16px'};
+  border-radius: ${props => props.type === 'system' ? '0' : '16px'};
+  box-shadow: ${props => props.type === 'system' ? 'none' : '0 1px 2px rgba(0, 0, 0, 0.1)'};
+  font-size: ${props => props.type === 'system' ? '13px' : '14px'};
   line-height: 1.5;
   white-space: pre-wrap;
   word-break: break-word;
+  text-align: ${props => props.type === 'system' ? 'center' : 'left'};
 `
 
 const MessageImage = styled.img`

@@ -3,6 +3,7 @@ import styled from '@emotion/styled'
 import DrawingCanvas from './components/DrawingCanvas'
 import ChatPanel from './components/ChatPanel'
 import ChatHistory from './components/ChatHistory'
+import { getConditionsForExperiment, getImagePath, getSystemPrompt, isNonLLM, getCurrentCondition } from './utils/experimentUtils'
 
 const App = () => {
   const [currentImageId, setCurrentImageId] = useState(null)
@@ -14,28 +15,93 @@ const App = () => {
   const canvasRef = useRef(null)
   const baseURL = import.meta.env.VITE_API_BASE_URL;
 
-  // 실험 조건 정의
-  const experimentConditions = {
-    "1": {
-      useLLM: {
-        2: true,  // 2번 이미지는 LLM 사용
-        4: true,  // 4번 이미지는 LLM 사용
-      }
-      // 나머지 이미지는 기본적으로 LLM 미사용
-    }
-  };
-
   // 현재 이미지에서 LLM을 사용해야 하는지 확인하는 함수
   const shouldUseLLM = () => {
     const experimentId = localStorage.getItem('experimentId');
     // 첫 번째 이미지(튜토리얼)는 항상 LLM 사용
     if (currentImageIndex === 0) return true;
     
-    // 실험 조건이 정의되지 않은 경우 기본값으로 LLM 사용
-    if (!experimentId || !experimentConditions[experimentId]) return true;
+    if (!experimentId) return true;
 
-    // 현재 이미지 번호에 대한 LLM 사용 여부 확인
-    return experimentConditions[experimentId].useLLM?.[currentImageIndex + 1] ?? false;
+    const currentCondition = getCurrentCondition(parseInt(experimentId), currentImageIndex - 1);
+    return !isNonLLM(currentCondition);
+  };
+
+  // 이미지 변경 시 호출되는 함수
+  const handleImageChange = (index) => {
+    setCurrentImageIndex(index);
+    const experimentId = localStorage.getItem('experimentId');
+    
+    if (index === 0) {
+      // 튜토리얼 이미지
+      setCurrentImageId('tutorial');
+      setCurrentImage('/images/tutorial.png');
+      
+      // 튜토리얼용 시스템 메시지
+      const systemMessage = {
+        id: Date.now(),
+        type: 'system',
+        content: '지금부터 이 차트에 대해서 이야기를 시작할 것입니다.\n파이팅!',
+        timestamp: new Date()
+      };
+      
+      setChatHistory([systemMessage]);
+      
+    } else if (experimentId) {
+      // 실험 이미지
+      const condition = getCurrentCondition(parseInt(experimentId), index - 1);
+      setCurrentImageId(condition);
+      setCurrentImage(getImagePath(condition));
+      
+      // 차트별 시스템 메시지
+      const prompt = getSystemPrompt(condition);
+      const systemMessage = {
+        id: Date.now(),
+        type: 'system',
+        content: prompt,
+        timestamp: new Date()
+      };
+      
+      setChatHistory([systemMessage]);
+    }
+  };
+
+  // currentImageIndex가 변경될 때마다 이미지 로드
+  useEffect(() => {
+    handleImageChange(currentImageIndex);
+  }, [currentImageIndex]);
+
+  // 컴포넌트 마운트 시 초기 이미지 로드
+  useEffect(() => {
+    handleImageChange(0); // 첫 번째 이미지(튜토리얼) 로드
+  }, []);
+
+  // 시스템 메시지 추가 함수
+  const addSystemMessage = (imageData) => {
+    const experimentId = localStorage.getItem('experimentId');
+    let prompt = '지금부터 이 차트에 대해서 이야기를 시작할 것입니다.\n파이팅!';
+    
+    if (currentImageIndex > 0 && experimentId) {
+      const condition = getCurrentCondition(parseInt(experimentId), currentImageIndex - 1);
+      prompt = getSystemPrompt(condition);
+    }
+
+    const systemMessage = {
+      id: Date.now(),
+      type: 'system',
+      content: prompt,
+      image: imageData,
+      timestamp: new Date()
+    };
+    
+    const aiQuestion = {
+      id: Date.now() + 1,
+      type: 'ai',
+      content: '무엇을 도와드릴까요?',
+      timestamp: new Date()
+    };
+    
+    setChatHistory(prev => [...prev, systemMessage, aiQuestion]);
   };
 
   // 대화 기록 저장 함수
@@ -225,12 +291,13 @@ const App = () => {
           <DrawingCanvas 
             currentImageIndex={currentImageIndex}
             ref={canvasRef}
+            currentImage={currentImage}
           />
         </DrawingSection>
         <RightSection>
           <ChatSection>
             <ChatPanel
-              currentImageId={currentImageIndex}
+              currentImageId={currentImageId}
               chatHistory={chatHistory}
               setChatHistory={setChatHistory}
               onRequestImageSend={handleImageSend}
